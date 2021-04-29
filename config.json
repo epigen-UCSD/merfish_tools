@@ -1,0 +1,9 @@
+{
+    "analysis_root": "/storage/RNA_MERFISH/MERlin_Analysis",
+    "reference_counts": [
+        {
+            "name": "W15 scRNA-seq",
+            "file": "/storage/RNA_MERFISH/Reference_Data/W15_scrna_norm_counts.csv"
+        }
+    ]
+}
