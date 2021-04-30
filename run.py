@@ -1,4 +1,3 @@
-import sys
 import argparse
 
 import config
@@ -17,8 +16,8 @@ def main():
     args = parser.parse_args()
     config.load(args)
     mfx = MerfishExperiment()
-    mfx.stats.calculate_decoding_metrics()
-
+    #mfx.stats.calculate_decoding_metrics()
+    print(mfx.stats['Number of cells'])
 
 if __name__ == '__main__':
     main()

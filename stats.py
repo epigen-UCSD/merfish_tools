@@ -5,11 +5,9 @@ the MerfishExperiment class (see experiment.py).
 """
 
 import os
-import glob
 import json
 import atexit
 from functools import cached_property
-from collections import Counter
 
 import pandas as pd
 import numpy as np
@@ -44,7 +42,8 @@ class Stats:
             '0->1 error rate': lambda stats: self.global_error['0->1 error rate'],
             '1->0 error rate': lambda stats: self.global_error['1->0 error rate'],
             'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
-            'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean()
+            'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
+            'Number of cells': lambda stats: len(np.unique(self.mfx.celldata.index))
         }
         if config.has('reference_counts'):
             for dataset in config.get('reference_counts'):

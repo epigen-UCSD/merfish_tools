@@ -7,6 +7,7 @@ import pandas as pd
 
 import config
 from stats import Stats
+import segmentation
 from util import announce, expand_codebook, csv_cached_property
 
 
@@ -18,6 +19,7 @@ class MerfishExperiment:
         #self.args = args
         self.name = config.get('experiment_name')
         self.analysis_folder = os.path.join(config.get('analysis_root'), self.name)
+        self.segmask_folder = os.path.join(config.get('segmentation_root'), self.name, config.get('segmentation_name'))
         self.mfx = self #This is dumb, but makes decorators that expect self.mfx to work
 
     @cached_property
@@ -73,3 +75,14 @@ class MerfishExperiment:
         df = pd.read_csv(os.path.join(self.analysis_folder, "positions.csv"), header=None)
         df.columns = ['x', 'y']
         return df
+
+    @cached_property
+    def masks(self):
+        return segmentation.MaskList(mfx=self, segmask_dir=self.segmask_folder)
+
+    @csv_cached_property('cell_metadata.csv')
+    def celldata(self):
+        celldata = self.masks.create_metadata_table(use_overlaps=True)
+        celldata = segmentation.filter_by_volume(celldata, min_volume=config.get('minimum_cell_volume'),
+            max_factor=config.get('maximum_cell_volume'))
+        return celldata

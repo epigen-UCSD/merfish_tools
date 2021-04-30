@@ -1,5 +1,9 @@
 {
     "analysis_root": "/storage/RNA_MERFISH/MERlin_Analysis",
+    "segmentation_root": "/storage/RNA_MERFISH/Segmentation",
+    "segmentation_name": "polya_80diameter_slice10_newmethod",
+    "minimum_cell_volume": 2000,
+    "maximum_cell_volume": 3,
     "reference_counts": [
         {
             "name": "W15 scRNA-seq",

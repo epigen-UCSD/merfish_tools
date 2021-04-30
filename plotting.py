@@ -154,3 +154,18 @@ def plot_correlation(xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[]):
     plt.tight_layout()
     if outfile:
         plt.savefig(outfile, dpi=300)
+
+def plot_cell_volume_histogram(mfx):#celldata, save=None):
+    plt.figure()
+    sns.histplot(mfx.celldata['volume'], bins=50)
+    plt.xlabel("Cell volume (pixels)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(mfx.analysis_folder, "cell_volume.png"), dpi=300)
+
+def plot_mask(mask):
+    plt.figure()
+    levels = np.unique(mask) + 0.5
+    plt.contour(mask, sorted(levels), c='r')
+    for cellid in np.unique(mask):
+        if cellid > 0:
+            plt.text(np.median(mask[mask == cellid]), s=cellid)
