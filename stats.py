@@ -43,7 +43,11 @@ class Stats:
             '1->0 error rate': lambda stats: self.global_error['1->0 error rate'],
             'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
             'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
-            'Number of cells': lambda stats: len(np.unique(self.mfx.celldata.index))
+            'Segmented cells': lambda stats: len(np.unique(self.mfx.celldata.index)),
+            'Barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells,
+            '% barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells / len(self.mfx.barcodes),
+            'Cells with barcodes': lambda stats: self.mfx.barcodes.cell_count,
+            '% cells with barcodes': lambda stats: stats['Cells with barcodes'] / stats['Segmented cells']
         }
         if config.has('reference_counts'):
             for dataset in config.get('reference_counts'):
