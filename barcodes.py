@@ -72,6 +72,7 @@ class Barcodes:
             except IndexError:
                 return masks[fov][clip(y, 0, 2047), clip(x, 0, 2047)]
 
+        masks.link_cells_in_overlaps()
         cellids = []
         for fov, group in tqdm(self.barcodes.groupby('fov'), desc="Assigning barcodes to cells"):
             if drifts is not None:
@@ -92,7 +93,6 @@ class Barcodes:
         drop_cols = [col for col in ctable.columns if 'notarget' in col]
         ctable = ctable.drop(columns=drop_cols)
         return ctable
-        ctable.to_csv(os.path.join(self.analysis_folder, 'single_cell_raw_counts.csv'))
 
     def plot_barcodes_in_fov(self):
         pass

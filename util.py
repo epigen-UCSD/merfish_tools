@@ -16,7 +16,7 @@ def announce(message: str):
     """
     def decorator_announce(func):
         def announce_wrapper(*args, **kwargs):
-            print(message+'...', end='')
+            print(message+'...', end='', flush=True)
             rval = func(*args, **kwargs)
             print('done')
             return rval

@@ -47,7 +47,11 @@ class Stats:
             'Barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells,
             '% barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells / len(self.mfx.barcodes),
             'Cells with barcodes': lambda stats: self.mfx.barcodes.cell_count,
-            '% cells with barcodes': lambda stats: stats['Cells with barcodes'] / stats['Segmented cells']
+            '% cells with barcodes': lambda stats: stats['Cells with barcodes'] / stats['Segmented cells'],
+            'Median transcripts per cell': lambda stats: np.median(self.mfx.single_cell_raw_counts.apply(np.sum, axis=1)),
+            'Median genes detected per cell': lambda stats: np.median(self.mfx.single_cell_raw_counts.astype(bool).sum(axis=1)),
+            'PCs used in clustering': lambda stats: self.mfx.clustering.number_PCs,
+            'Number of clusters': lambda stats: self.mfx.clustering.nclusts
         }
         if config.has('reference_counts'):
             for dataset in config.get('reference_counts'):
@@ -140,11 +144,15 @@ class Stats:
         plotting.fov_error_spatial(self.mfx)
         for dataset in config.get('reference_counts'):
             plotting.rnaseq_correlation(self.mfx, dataset['name'])
+        plotting.cell_volume_histogram(self.mfx)
+        plotting.counts_per_cell_histogram(self.mfx)
+        plotting.genes_detected_per_cell_histogram
 
     @announce("Saving statistics")
     def save(self) -> None:
+        text = json.dumps(self.stats, indent=4)
         with open(self.filepath, 'w') as f:
-            f.write(json.dumps(self.stats, indent=4))
+            f.write(text)
         atexit.unregister(save_stats)
         self.unsaved = False
 

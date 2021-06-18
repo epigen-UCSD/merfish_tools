@@ -155,7 +155,7 @@ def plot_correlation(xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[]):
     if outfile:
         plt.savefig(outfile, dpi=300)
 
-def plot_cell_volume_histogram(mfx):#celldata, save=None):
+def cell_volume_histogram(mfx):
     plt.figure()
     sns.histplot(mfx.celldata['volume'], bins=50)
     plt.xlabel("Cell volume (pixels)")
@@ -169,3 +169,21 @@ def plot_mask(mask):
     for cellid in np.unique(mask):
         if cellid > 0:
             plt.text(np.median(mask[mask == cellid]), s=cellid)
+
+def counts_per_cell_histogram(mfx):
+    plt.figure(figsize=(7,5))
+    sns.histplot(mfx.single_cell_raw_counts.apply(np.sum, axis=1), bins=50)
+    plt.xlabel("Transcript count")
+    plt.ylabel("Cell count")
+    plt.tight_layout()
+    plt.grid(b=None)
+    plt.savefig(os.path.join(mfx.analysis_folder, "transcript_count_per_cell.png"), dpi=300)
+
+def genes_detected_per_cell_histogram(mfx):
+    plt.figure(figsize=(7,5))
+    sns.histplot(mfx.single_cell_raw_counts.astype(bool).sum(axis=1), binwidth=1)
+    plt.xlabel("Genes detected")
+    plt.ylabel("Cell count")
+    plt.tight_layout()
+    plt.grid(b=None)
+    plt.savefig(os.path.join(mfx.analysis_folder, "genes_detected_per_cell.png"), dpi=300)

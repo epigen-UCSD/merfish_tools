@@ -95,13 +95,12 @@ def filter_by_volume(celldata, min_volume, max_factor):
     print(f"Dropped {start-len(celldata.index)} cells with volume > {median*max_factor} pixels")
     return celldata
 
-def get_global_cell_positions(celldata, positions_file):
-    positions = pd.read_csv(positions_file, header=None)
+def get_global_cell_positions(celldata, positions):
     gxs = []
     gys = []
     for _, cell in celldata.iterrows():
-        gxs.append(220 * (2048-cell['fov_y']) / 2048 + positions.iloc[int(cell['fov'])][0])
-        gys.append(220 * cell['fov_x'] / 2048 + positions.iloc[int(cell['fov'])][1])
+        gxs.append(220 * (2048-cell['fov_y']) / 2048 + positions.iloc[int(cell['fov'])]['x'])
+        gys.append(220 * cell['fov_x'] / 2048 + positions.iloc[int(cell['fov'])]['y'])
     gxs = [-x for x in gxs]
     celldata['global_x'] = gxs
     celldata['global_y'] = gys
