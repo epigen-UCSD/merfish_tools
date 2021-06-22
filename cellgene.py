@@ -3,7 +3,6 @@ from random import sample
 from functools import cached_property
 
 import scanpy as sc
-import pandas as pd
 import numpy as np
 from scipy.stats import zscore
 from anndata import AnnData
@@ -12,14 +11,15 @@ from tqdm import tqdm
 from util import announce
 import config
 
+
 class ScanpyObject:
     def __init__(self, mfx) -> None:
         self.mfx = mfx
         self.cmap = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4',
-            '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8', '#800000',
-            '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9']
+                     '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8',
+                     '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9']
         sc.settings.figdir = self.mfx.analysis_folder
-        sc.set_figure_params(dpi_save=300,figsize=(5,5))
+        sc.set_figure_params(dpi_save=300, figsize=(5, 5))
 
     @cached_property
     def scdata(self):
@@ -31,7 +31,6 @@ class ScanpyObject:
     @announce("Building scanpy object and normalizing counts")
     def initialize(self):
         scdata = sc.read_csv(os.path.join(self.mfx.analysis_folder, "single_cell_raw_counts.csv"), first_column_names=True)
-        #gcells = pd.read_csv(os.path.join(self.mfx.analysis_folder, "global_cell_positions.csv"), index_col=0)
         gcells = self.mfx.global_cell_positions[['global_y', 'global_x']]
         scdata.obsm['X_spatial'] = np.array(gcells.reindex(index=scdata.obs.index.astype(int)))
         sc.pp.calculate_qc_metrics(scdata, percent_top=None, inplace=True)
@@ -55,7 +54,6 @@ class ScanpyObject:
             mvars.append(rndata.uns['pca']['variance'][0])
 
         cutoff = np.mean(mvars)
-        #print(f"Cutoff is {cutoff}")
         sc.tl.pca(self.scdata, svd_solver='arpack')
         return int(np.sum(self.scdata.uns['pca']['variance'] > cutoff))
 

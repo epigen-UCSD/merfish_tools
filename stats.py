@@ -22,9 +22,10 @@ from util import announce, csv_cached_property
 
 
 class Stats:
-    """This class stores and calculates various statistics about MERFISH experiments."""
+    """This class calculates and stores various statistics about MERFISH experiments."""
 
-    def __init__(self, mfx: 'MerfishExperiment'):
+    def __init__(self, mfx):
+        """Create Stats object and load existing stats from file, if it exists. mfx is a MerfishExperiment."""
         self.mfx = mfx
         self.analysis_folder = self.mfx.analysis_folder
         self.filepath = os.path.join(mfx.analysis_folder, 'stats.json')
@@ -65,6 +66,7 @@ class Stats:
         self._ref_counts = {}
 
     def __getitem__(self, stat: str):
+        """Calculate the stat if not available, then return it."""
         if stat not in self.stats:
             self.stats[stat] = self.functions[stat](self)
             if not self.unsaved:
@@ -74,7 +76,8 @@ class Stats:
 
     @csv_cached_property('error_counts.csv')
     def error_counts(self) -> pd.DataFrame:
-        #L2 normalize the expanded codebook
+        """Calculate the barcode error statistics."""
+        # L2 normalize the expanded codebook
         codebook = self.mfx.expanded_codebook
         codes = codebook.filter(like='bit')
         normcodes = codes.apply(lambda row: row / norm(row), axis=1)
@@ -84,14 +87,17 @@ class Stats:
 
     @cached_property
     def global_error(self) -> pd.Series:
+        """Get barcode error statistics aggregated across the entire experiment."""
         return error_stats(self.error_counts)
 
     @csv_cached_property('per_gene_error.csv', save_index=True, index_col=0)
     def per_gene_error(self) -> pd.DataFrame:
+        """Get barcode error statistics per gene."""
         return self.error_counts.groupby('name').apply(error_stats).sort_values(by='% exact barcodes', ascending=False)
 
     @cached_property
     def per_bit_error(self) -> pd.DataFrame:
+        """Get barcode error statistics per bit."""
         err_rates = self.error_counts.groupby('name').apply(get_per_bit_stats).reset_index()
         err_rates['Color'] = err_rates.apply(lambda row: self.mfx.barcode_colors[(row['Bit']-1) % len(self.mfx.barcode_colors)], axis=1)
         err_rates['Hybridization round'] = err_rates.apply(lambda row: ((row['Bit']-1) // len(self.mfx.barcode_colors))+1, axis=1)
@@ -99,6 +105,7 @@ class Stats:
 
     @cached_property
     def per_fov_error(self) -> pd.DataFrame:
+        """Get barcode error statistics per FOV."""
         fovs = self.error_counts.groupby('fov').apply(error_stats)
         fovs['FOV'] = fovs.index
         fovs.columns = ['Count', 'No errors', 'Errors', 'Correct', '0 -> 1', '1 -> 0', 'FOV']
@@ -160,24 +167,35 @@ class Stats:
 
 
 def save_stats(stats: Stats) -> None:
+    """Call the save method of the given Stats object.
+
+    This function is needed to get the atexit.register stuff to work, as you can't use it directly
+    with class methods. Whenever something is added or changed in a Stats object, we use the atexit
+    library to register this save function to run when python exits. This lets it get saved even
+    if the program hits an error and crashes.
+    """
     stats.save()
 
+
 def count_unfiltered_barcodes(stats: Stats) -> int:
+    """Count the total number of barcodes decoded by MERlin before adaptive filtering."""
     raw_count = 0
     for file in tqdm(stats.mfx.raw_barcode_files, desc="Counting unfiltered barcodes"):
         barcodes = pd.read_hdf(file)
         raw_count += len(barcodes)
     return raw_count
 
+
 def process_fov(filename: str, normcodes: pd.DataFrame, codebook: pd.DataFrame) -> pd.DataFrame:
+    """Determine the virtual bit correction for barcodes in this FOV."""
     barcodes = pd.read_hdf(filename)
     fov = int(filename.split('_')[-1].split('.')[0])
 
-    #Get just the intensity columns for convenience
+    # Get just the intensity columns for convenience
     intensities = barcodes[[f'intensity_{i}' for i in range(16)]]
     intensities = intensities.rename(columns=lambda x: 'intensity_' + str(int(x.split('_')[1])+1))
 
-    #Find nearest
+    # Find nearest
     neighbors = NearestNeighbors(n_neighbors=1, algorithm='ball_tree', n_jobs=16)
     neighbors.fit(normcodes)
     distances, indexes = neighbors.kneighbors(intensities, return_distance=True)
@@ -190,14 +208,19 @@ def process_fov(filename: str, normcodes: pd.DataFrame, codebook: pd.DataFrame) 
 
     return df.reset_index().drop_duplicates()
 
+
 def error_stats(data: pd.DataFrame) -> pd.Series:
     c = data.groupby('bits')['count'].sum()
     total = sum(c)
     exact = c[4] if 4 in c else 0
     one2zero = c[3] if 3 in c else 0
     zero2one = c[5] if 5 in c else 0
-    columns = ["Barcodes", "Exact barcode count", "Corrected barcode count", "% exact barcodes", "0->1 error rate", "1->0 error rate"]
-    return pd.Series([total, exact, one2zero+zero2one, exact / total, zero2one / total, one2zero / total], index=columns)
+    columns = ["Barcodes", "Exact barcode count", "Corrected barcode count",
+               "% exact barcodes", "0->1 error rate", "1->0 error rate"]
+    return pd.Series(
+        [total, exact, one2zero+zero2one, exact / total, zero2one / total, one2zero / total],
+        index=columns)
+
 
 def get_per_bit_stats(data: pd.DataFrame) -> pd.DataFrame:
     total = data['count'].sum()

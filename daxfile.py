@@ -1,6 +1,7 @@
 import numpy as np
 import re
 
+
 class DaxFile:
     def __init__(self, filename, num_channels):
         self.filename = filename
@@ -39,7 +40,7 @@ class DaxFile:
         return self._memmap[:, :, :]
 
     def zslice(self, zslice, channel=None):
-        """If channel is None, return all channels"""
+        """If channel is None, return all channels."""
         if channel is None:
             return self._memmap[zslice*self.num_channels:zslice*self.num_channels+self.num_channels, :, :]
         else:

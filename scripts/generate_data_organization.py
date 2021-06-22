@@ -1,4 +1,4 @@
-"""Data organization file generator
+"""Data organization file generator.
 
 This script generates the data organization file needed by MERlin. You must
 specify 3 command-line parameters:
@@ -24,22 +24,22 @@ import argparse
 
 parser = argparse.ArgumentParser(description='Generate data organization files for MERlin')
 parser.add_argument('-b', '--bits', help='The number of bits in the MERFISH codebook',
-    dest='bits', type=int, required=True)
+                    dest='bits', type=int, required=True)
 parser.add_argument('-c', '--colors', help='The imaging colors used (not including fiducial)',
-    dest='colors', nargs='+', required=True)
+                    dest='colors', nargs='+', required=True)
 parser.add_argument('-z', '--zstacks', help='The number of z-dimension images/pixels',
-    dest='zstacks', type=int, required=True)
+                    dest='zstacks', type=int, required=True)
 args = parser.parse_args()
 
 bits = args.bits
 colors = args.colors
 zstacks = args.zstacks
 
-fiducial_color = '350' #MERlin doesn't seem to use this for anything, so no need to change it
+fiducial_color = '350'  # MERlin doesn't seem to use this for anything, so no need to change it
 columns = 'channelName,readoutName,imageType,imageRegExp,bitNumber,imagingRound,color,frame,zPos,fiducialImageType,fiducialRegExp,fiducialImagingRound,fiducialFrame,fiducialColor'
 image_type = 'Conv_zscan'
 regexp = '(?P<imageType>[\w|-]+)_H(?P<imagingRound>[0-9]+)_F_(?P<fov>[0-9]+)'
-n_frames = zstacks * (len(colors) + 1) #+1 for fiducial channel
+n_frames = zstacks * (len(colors) + 1)  # +1 for fiducial channel
 
 print(columns)
 for bit in range(1, bits+1):
@@ -48,5 +48,6 @@ for bit in range(1, bits+1):
     color = colors[(bit - 1) % len(colors)]
     frames = str(list(range(bit % len(colors), n_frames, len(colors) + 1)))
     zpos = str(list(range(0, zstacks)))
-    row = [name, name, image_type, regexp, str(bit), round, color, f'"{frames}"', f'"{zpos}"', image_type, regexp, round, '11', fiducial_color]
+    row = [name, name, image_type, regexp, str(bit), round, color, f'"{frames}"', f'"{zpos}"',
+           image_type, regexp, round, '11', fiducial_color]
     print(','.join(row))

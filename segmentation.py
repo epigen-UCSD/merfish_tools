@@ -22,6 +22,7 @@ def get_slice(diff):
     else:
         return slice(None, overlap)
 
+
 def find_fov_overlaps(positions):
     fovsize = 220
     nn = NearestNeighbors()
@@ -39,18 +40,21 @@ def find_fov_overlaps(positions):
                              (fov, get_slice(-diff[0]), get_slice(diff[1]))])
     return overlaps
 
+
 def get_slice_range(sliceobj):
     start = sliceobj.start if sliceobj.start is not None else 0
     stop = sliceobj.stop if sliceobj.stop is not None else 2048
     return range(start, stop)
 
-def get_coords_in_slice(xslice, yslice):
-    return ((x,y) for x in get_slice_range(xslice) for y in get_slice_range(yslice))
 
-#This should probably be in the MaskList class
+def get_coords_in_slice(xslice, yslice):
+    return ((x, y) for x in get_slice_range(xslice) for y in get_slice_range(yslice))
+
+
+# This should probably be in the MaskList class
 def get_overcounts(overlaps, masks, celldata):
-    #We need to get a set of all mask pixels in the overlaps, and make sure we don't include pixels
-    #more than once if they are in areas included in multiple overlaps (like at the corners)
+    # We need to get a set of all mask pixels in the overlaps, and make sure we don't include pixels
+    # more than once if they are in areas included in multiple overlaps (like at the corners)
     coords = defaultdict(set)
     for a, b in tqdm(overlaps, desc="Getting overlapping pixels"):
         coords[a[0]].update(get_coords_in_slice(a[1], a[2]))
@@ -78,22 +82,25 @@ def get_overcounts(overlaps, masks, celldata):
             dfs.append(volumes.reset_index())
     return pd.concat(dfs)
 
+
 def add_total_volume(celldata, overcounts):
     res = celldata.groupby('cell_id')['volume'].sum().subtract(overcounts.groupby('cell_id')['volume'].sum(), fill_value=0)
     return pd.merge(celldata, res, left_on='cell_id', right_on='cell_id', suffixes=('_fov', ''))
 
+
 def filter_by_volume(celldata, min_volume, max_factor):
-    #Remove small cells
+    # Remove small cells
     start = len(celldata.index)
     celldata = celldata.drop(celldata[celldata['volume'] < min_volume].index)
     print(f"Dropped {start-len(celldata.index)} cells with volume < {min_volume} pixels")
 
-    #Remove large cells
+    # Remove large cells
     start = len(celldata.index)
     median = np.median(celldata['volume'])
     celldata = celldata.drop(celldata[celldata['volume'] > median*max_factor].index)
     print(f"Dropped {start-len(celldata.index)} cells with volume > {median*max_factor} pixels")
     return celldata
+
 
 def get_global_cell_positions(celldata, positions):
     gxs = []
@@ -107,10 +114,12 @@ def get_global_cell_positions(celldata, positions):
     global_celldata = celldata.groupby('cell_id')['global_x', 'global_y'].mean()
     return global_celldata
 
+
 def save_cell_links(links, filename):
     with open(filename, 'w') as f:
         for link in links:
             print(','.join([str(cell) for cell in link]), file=f)
+
 
 def load_cell_links(filename):
     links = []
@@ -218,7 +227,7 @@ class MaskList:
             mask = self[fov]
             unique, counts = np.unique(mask, return_counts=True)
             if exclude_edge:
-                edge = np.unique(np.concatenate([mask[:,0], mask[:,-1], mask[0,:], mask[-1,:]]))
+                edge = np.unique(np.concatenate([mask[:, 0], mask[:, -1], mask[0, :], mask[-1, :]]))
             else:
                 edge = set()
             for cell_id, volume in zip(unique, counts):

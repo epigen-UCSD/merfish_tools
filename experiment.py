@@ -1,4 +1,3 @@
-from cellgene import ScanpyObject
 import os
 import glob
 from functools import cached_property
@@ -10,23 +9,21 @@ from tqdm import tqdm
 import config
 from stats import Stats
 import segmentation
-from util import announce, expand_codebook, csv_cached_property, calculate_drift
+from util import expand_codebook, csv_cached_property, calculate_drift
 from daxfile import DaxFile
 from barcodes import Barcodes
 from cellgene import ScanpyObject
 
 
 class MerfishExperiment:
-    """
-    This is the main class for the MERFISH pipeline.
-    """
+    """This is the main class for the MERFISH pipeline."""
+
     def __init__(self):
-        #self.args = args
         self.name = config.get('experiment_name')
         self.analysis_folder = os.path.join(config.get('analysis_root'), self.name)
         self.segmask_folder = os.path.join(config.get('segmentation_root'), self.name, config.get('segmentation_name'))
         self.data_folder = os.path.join(config.get('data_root'), self.name)
-        self.mfx = self #This is dumb, but makes decorators that expect self.mfx to work
+        self.mfx = self  # This is dumb, but makes decorators that expect self.mfx to work
 
     @cached_property
     def stats(self):
@@ -50,7 +47,7 @@ class MerfishExperiment:
 
     @cached_property
     def barcode_colors(self):
-        #We build the list like this instead of just np.unique on the column to maintain the ordering
+        # We build the list like this instead of just np.unique on the column to maintain the ordering
         colors = []
         for color in self.data_organization['color']:
             if color not in colors:
@@ -69,16 +66,16 @@ class MerfishExperiment:
 
     @csv_cached_property('mask_drifts.csv')
     def mask_drifts(self):
-        #TODO: Filename is hardcoded to 3 digit FOV numbers
-        #TODO: Number of channels in H0 and H1 images are hardcoded
-        #TODO: Fiducial channel to use is hardcoded
+        # TODO: Filename is hardcoded to 3 digit FOV numbers
+        # TODO: Number of channels in H0 and H1 images are hardcoded
+        # TODO: Fiducial channel to use is hardcoded
         drifts = []
         for fov in tqdm(range(len(self.masks)), desc="Calculating drifts between barcodes and masks"):
             h0 = DaxFile(os.path.join(self.data_folder, f'Conv_zscan_H0_F_{fov:03d}.dax'), num_channels=5).zslice(0, channel=2)
             h1 = DaxFile(os.path.join(self.data_folder, f'Conv_zscan_H1_F_{fov:03d}.dax'), num_channels=3).zslice(0, channel=2)
             drifts.append(calculate_drift(h0, h1))
         driftdf = pd.concat(drifts, axis=1).T
-        driftdf.columns =['Y drift', 'X drift']
+        driftdf.columns = ['Y drift', 'X drift']
         driftdf = driftdf.fillna(0)
         return driftdf
 
@@ -104,7 +101,7 @@ class MerfishExperiment:
     def celldata(self):
         celldata = self.masks.create_metadata_table(use_overlaps=True)
         celldata = segmentation.filter_by_volume(celldata, min_volume=config.get('minimum_cell_volume'),
-            max_factor=config.get('maximum_cell_volume'))
+                                                 max_factor=config.get('maximum_cell_volume'))
         return celldata
 
     @csv_cached_property('global_cell_positions.csv', save_index=True, index_col=0)
