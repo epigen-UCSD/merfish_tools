@@ -22,9 +22,8 @@ from util import announce, csv_cached_property
 
 
 class Stats:
-    """
-    This class stores and calculates various statistics about MERFISH experiments.
-    """
+    """This class stores and calculates various statistics about MERFISH experiments."""
+
     def __init__(self, mfx: 'MerfishExperiment'):
         self.mfx = mfx
         self.analysis_folder = self.mfx.analysis_folder
@@ -41,8 +40,8 @@ class Stats:
             '% exact barcodes': lambda stats: self.global_error['% exact barcodes'],
             '0->1 error rate': lambda stats: self.global_error['0->1 error rate'],
             '1->0 error rate': lambda stats: self.global_error['1->0 error rate'],
-            'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
-            'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
+            'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
+            'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
             'Segmented cells': lambda stats: len(np.unique(self.mfx.celldata.index)),
             'Barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells,
             '% barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells / len(self.mfx.barcodes),
