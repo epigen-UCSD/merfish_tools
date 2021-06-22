@@ -43,6 +43,8 @@ class Stats:
             'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
             'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
             'Segmented cells': lambda stats: len(np.unique(self.mfx.celldata.index)),
+            'Segmented cells per FOV': lambda stats: stats['Segmented cells'] / stats['FOVs'],
+            'Median cell volume (pixels)': lambda stats: np.median(stats.mfx.celldata['volume']),
             'Barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells,
             '% barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells / len(self.mfx.barcodes),
             'Cells with barcodes': lambda stats: self.mfx.barcodes.cell_count,
