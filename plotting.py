@@ -187,3 +187,15 @@ def genes_detected_per_cell_histogram(mfx):
     plt.tight_layout()
     plt.grid(b=None)
     plt.savefig(os.path.join(mfx.analysis_folder, "genes_detected_per_cell.png"), dpi=300)
+
+def spatial_cell_clusters(mfx):
+    plt.figure(figsize=(10,12), facecolor='black')
+    for cluster in np.unique(mfx.clustering.scdata.obs['leiden']):
+        inds = mfx.clustering.scdata.obs[mfx.clustering.scdata.obs['leiden'] == cluster].index.astype(int)
+        x = mfx.global_cell_positions.loc[inds]['global_x']
+        y = mfx.global_cell_positions.loc[inds]['global_y']
+        plt.scatter(y, x, c=mfx.clustering.cmap[int(cluster) % 20], s=0.5)
+    plt.grid(b=None)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(os.path.join(mfx.analysis_folder, 'spatial_cell_clusters.png'), dpi=300)

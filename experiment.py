@@ -107,7 +107,7 @@ class MerfishExperiment:
             max_factor=config.get('maximum_cell_volume'))
         return celldata
 
-    @csv_cached_property('global_cell_positions.csv')
+    @csv_cached_property('global_cell_positions.csv', save_index=True, index_col=0)
     def global_cell_positions(self):
         return segmentation.get_global_cell_positions(self.celldata, self.positions)
 

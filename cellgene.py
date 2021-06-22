@@ -74,6 +74,7 @@ class ScanpyObject:
         sc.pl.umap(self.scdata, color='leiden', add_outline=True, legend_loc='on data',
                    legend_fontsize=12, legend_fontoutline=2, frameon=False,
                    title=f'{nclusts} clusters of {len(self.scdata):,d} cells', palette=self.cmap, save='_clusters.png')
+        self.scdata.write(os.path.join(self.mfx.analysis_folder, 'scanpy_object.h5ad'))
         print("done")
 
     @cached_property

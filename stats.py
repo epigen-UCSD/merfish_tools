@@ -147,7 +147,8 @@ class Stats:
             plotting.rnaseq_correlation(self.mfx, dataset['name'])
         plotting.cell_volume_histogram(self.mfx)
         plotting.counts_per_cell_histogram(self.mfx)
-        plotting.genes_detected_per_cell_histogram
+        plotting.genes_detected_per_cell_histogram(self.mfx)
+        plotting.spatial_cell_clusters(self.mfx)
 
     @announce("Saving statistics")
     def save(self) -> None:
