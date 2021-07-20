@@ -7,6 +7,7 @@ the MerfishExperiment class (see experiment.py).
 import os
 import json
 import atexit
+import random
 from functools import cached_property
 
 import pandas as pd
@@ -41,6 +42,8 @@ class Stats:
             '% exact barcodes': lambda stats: self.global_error['% exact barcodes'],
             '0->1 error rate': lambda stats: self.global_error['0->1 error rate'],
             '1->0 error rate': lambda stats: self.global_error['1->0 error rate'],
+            'Pre-filtering 0->1 error rate': lambda stats: self.global_error_prefiltered['0->1 error rate'],
+            'Pre-filtering 1->0 error rate': lambda stats: self.global_error_prefiltered['1->0 error rate'],
             'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
             'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
             'Segmented cells': lambda stats: len(np.unique(self.mfx.celldata.index)),
@@ -74,6 +77,34 @@ class Stats:
                 atexit.register(save_stats, stats=self)
         return self.stats[stat]
 
+    @csv_cached_property('error_counts_prefiltered.csv')
+    def error_counts_prefiltered(self) -> pd.DataFrame:
+        """Calculate the barcode error statistics before adaptive filtering was applied.
+
+        The FOVs are processed one at a time in a random order and stopped when the overall
+        error rate changes by less than 0.1% when adding a new FOV. There are so many barcodes
+        before filtering that processing all FOVs would take a very long time.
+        """
+        codebook = self.mfx.expanded_codebook
+        codes = codebook.filter(like='bit')
+        normcodes = codes.apply(lambda row: row / norm(row), axis=1)
+
+        files = random.sample(self.mfx.raw_barcode_files, self['FOVs'])
+
+        data = None
+        zero2one = 100
+        one2zero = 100
+        for filename in tqdm(files, desc='Sampling pre-filtering barcodes', total=float("inf")):
+            newdata = process_fov(filename, normcodes, codebook)
+            data = pd.concat([data, newdata], ignore_index=True)
+            stats = error_stats(data)
+            if abs(stats['0->1 error rate'] - zero2one) < 0.0001 and abs(stats['1->0 error rate'] - one2zero) < 0.001:
+                break
+            zero2one = stats['0->1 error rate']
+            one2zero = stats['1->0 error rate']
+
+        return data
+
     @csv_cached_property('error_counts.csv')
     def error_counts(self) -> pd.DataFrame:
         """Calculate the barcode error statistics."""
@@ -89,6 +120,11 @@ class Stats:
     def global_error(self) -> pd.Series:
         """Get barcode error statistics aggregated across the entire experiment."""
         return error_stats(self.error_counts)
+
+    @cached_property
+    def global_error_prefiltered(self) -> pd.Series:
+        """Get barcode error statistics for sampling of FOVs before adaptive filtering was applied."""
+        return error_stats(self.error_counts_prefiltered)
 
     @csv_cached_property('per_gene_error.csv', save_index=True, index_col=0)
     def per_gene_error(self) -> pd.DataFrame:
