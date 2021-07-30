@@ -13,6 +13,11 @@ def has(key: str) -> bool:
     return key in config
 
 
+def update(settings: dict) -> None:
+    for key, value in settings.items():
+        config[key] = value
+
+
 def load_from_file(config_file: str) -> None:
     global config
     with open(config_file) as conf:
