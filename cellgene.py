@@ -31,7 +31,7 @@ class ScanpyObject:
     @announce("Building scanpy object and normalizing counts")
     def initialize(self):
         scdata = sc.read_csv(os.path.join(self.mfx.analysis_folder, "single_cell_raw_counts.csv"), first_column_names=True)
-        gcells = self.mfx.global_cell_positions[['global_y', 'global_x']]
+        gcells = self.mfx.global_cell_positions#[['global_y', 'global_x']]
         scdata.obsm['X_spatial'] = np.array(gcells.reindex(index=scdata.obs.index.astype(int)))
         sc.pp.calculate_qc_metrics(scdata, percent_top=None, inplace=True)
         sc.pp.normalize_total(scdata, target_sum=np.median(scdata.obs['total_counts']))

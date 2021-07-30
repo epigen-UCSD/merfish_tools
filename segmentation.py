@@ -111,7 +111,7 @@ def get_global_cell_positions(celldata, positions):
     gxs = [-x for x in gxs]
     celldata['global_x'] = gxs
     celldata['global_y'] = gys
-    global_celldata = celldata.groupby('cell_id')['global_x', 'global_y'].mean()
+    global_celldata = celldata.groupby('cell_id')[['global_x', 'global_y']].mean()
     return global_celldata
 
 
