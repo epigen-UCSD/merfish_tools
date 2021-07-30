@@ -94,12 +94,17 @@ class Stats:
         data = None
         zero2one = 100
         one2zero = 100
+        stable_count = 0
         for filename in tqdm(files, desc='Sampling pre-filtering barcodes', total=float("inf")):
             newdata = process_fov(filename, normcodes, codebook)
             data = pd.concat([data, newdata], ignore_index=True)
             stats = error_stats(data)
             if abs(stats['0->1 error rate'] - zero2one) < 0.0001 and abs(stats['1->0 error rate'] - one2zero) < 0.001:
-                break
+                stable_count += 1
+                if stable_count >= 3:
+                    break
+            else:
+                stable_count = 0
             zero2one = stats['0->1 error rate']
             one2zero = stats['1->0 error rate']
 
