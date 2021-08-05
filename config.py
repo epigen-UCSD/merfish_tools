@@ -4,6 +4,7 @@ import json
 import os
 
 config = {}
+result_path = None
 
 
 def get(key: str):
@@ -36,5 +37,10 @@ def load(args):
 
 
 def path(filename):
-    return os.path.join(get('analysis_root'), get('experiment_name'),
-                        get('result_folder'), filename)
+    global result_path
+    if result_path is None:
+        result_path = os.path.join(get('analysis_root'), get('experiment_name'),
+                                   get('result_folder'))
+        if not os.path.exists(result_path):
+            os.mkdir(result_path)
+    return os.path.join(result_path, filename)
