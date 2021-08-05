@@ -7,6 +7,8 @@ import pandas as pd
 from scipy.stats import zscore, pearsonr
 from matplotlib.ticker import FuncFormatter
 
+import config
+
 
 pctformatter = FuncFormatter(lambda x, pos: f"{x*100:.1f}%")
 
@@ -22,8 +24,9 @@ def drift_histogram(mfx) -> None:
                       xlim=(min(driftlist), max(driftlist)), ylim=(min(driftlist), max(driftlist)))
     g.map_dataframe(sns.histplot, x="X drift", y="Y drift", cmap="viridis")
     g.set(ylabel="Y drift", xlabel="X drift")
+    plt.grid(b=False)
     plt.tight_layout()
-    plt.savefig(os.path.join(mfx.analysis_folder, "drift_histogram.png"), dpi=300)
+    plt.savefig(config.path("drift_histogram.png"), dpi=300)
 
 
 def exact_vs_corrected(mfx: 'MerfishExperiment') -> None:
@@ -35,9 +38,9 @@ def exact_vs_corrected(mfx: 'MerfishExperiment') -> None:
     plt.ylabel('Counts (x10^6)')
     plt.text(0, exact, f"{mfx.stats['% exact barcodes']*100:0.0f}%", ha='center', va='bottom')
     plt.text(1, corrected, f"{(mfx.stats['0->1 error rate'] + mfx.stats['1->0 error rate'])*100:0.0f}%", ha='center', va='bottom')
+    plt.grid(b=False)
     plt.tight_layout()
-    plt.savefig(os.path.join(mfx.analysis_folder, "exact_vs_corrected.png"), dpi=300)
-    plt.close()
+    plt.savefig(config.path("exact_vs_corrected.png"), dpi=300)
 
 
 def confidence_ratios(mfx: 'MerfishExperiment') -> None:
@@ -49,9 +52,9 @@ def confidence_ratios(mfx: 'MerfishExperiment') -> None:
     plt.xlim(1, len(gene_stats))
     plt.xlabel('Rank')
     plt.ylabel('Confidence ratio')
+    plt.grid(b=False)
     plt.tight_layout()
-    plt.savefig(os.path.join(mfx.analysis_folder, "confidence_ratio.png"), dpi=300)
-    plt.close()
+    plt.savefig(config.path("confidence_ratio.png"), dpi=300)
 
 
 def per_bit_error_bar(mfx: 'MerfishExperiment') -> None:
@@ -63,7 +66,8 @@ def per_bit_error_bar(mfx: 'MerfishExperiment') -> None:
                      hue_order=mfx.barcode_colors, sharex=False, sharey=False)
     for axs in ax.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-    ax.savefig(os.path.join(mfx.analysis_folder, "bit_error_bar.png"), dpi=300)
+        axs.grid(b=False)
+    ax.savefig(config.path("bit_error_bar.png"), dpi=300)
 
 
 def per_bit_error_line(mfx: 'MerfishExperiment') -> None:
@@ -75,7 +79,8 @@ def per_bit_error_line(mfx: 'MerfishExperiment') -> None:
                      hue_order=mfx.barcode_colors, sharey=False, sharex=False)
     for axs in ax.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-    ax.savefig(os.path.join(mfx.analysis_folder, "bit_error_line.png"), dpi=300)
+        axs.grid(b=False)
+    ax.savefig(config.path("bit_error_line.png"), dpi=300)
 
 
 def per_hyb_error(mfx: 'MerfishExperiment') -> None:
@@ -87,9 +92,11 @@ def per_hyb_error(mfx: 'MerfishExperiment') -> None:
                     markers='.', capsize=0.2)
     for axs in g.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
+        axs.grid(b=False)
     g.set(ylabel="Error rate")
     g.axes.flat[-1].set_xlabel("Hybridization round")
-    g.savefig(os.path.join(mfx.analysis_folder, "hyb_error.png"), dpi=300)
+    plt.tight_layout()
+    g.savefig(config.path("hyb_error.png"), dpi=300)
 
 
 def per_color_error(mfx: 'MerfishExperiment') -> None:
@@ -100,7 +107,9 @@ def per_color_error(mfx: 'MerfishExperiment') -> None:
                      sharey=False, sharex=False)
     for axs in ax.axes.flat:
         axs.yaxis.set_major_formatter(pctformatter)
-    ax.savefig(os.path.join(mfx.analysis_folder, "color_error.png"), dpi=300)
+        axs.grid(b=False)
+    plt.tight_layout()
+    ax.savefig(config.path("color_error.png"), dpi=300)
 
 
 def fov_error_bar(mfx: 'MerfishExperiment') -> None:
@@ -122,8 +131,9 @@ def fov_error_bar(mfx: 'MerfishExperiment') -> None:
     fovplot(mfx.stats.per_fov_error[mfx.stats.per_fov_error['Error type'] == '0 -> 1'], ax[1])
     ax[0].set_title("Error type = 1 -> 0")
     ax[1].set_title("Error type = 0 -> 1")
+    plt.grid(b=False)
     plt.tight_layout()
-    plt.savefig(os.path.join(mfx.analysis_folder, "fov_error.png"), dpi=300)
+    plt.savefig(config.path("fov_error.png"), dpi=300)
 
 
 def fov_error_spatial(mfx: 'MerfishExperiment') -> None:
@@ -136,7 +146,7 @@ def fov_error_spatial(mfx: 'MerfishExperiment') -> None:
     ax2.axis("off")
     ax2.set_title("0 -> 1 error rate")
     fig.tight_layout()
-    fig.savefig(os.path.join(mfx.analysis_folder, "fov_error_spatial.png"), dpi=300)
+    fig.savefig(config.path("fov_error_spatial.png"), dpi=300)
 
 
 def rnaseq_correlation(mfx: 'MerfishExperiment', dataset) -> None:
@@ -144,7 +154,7 @@ def rnaseq_correlation(mfx: 'MerfishExperiment', dataset) -> None:
                      ycounts=mfx.stats.merfish_gene_counts,
                      xlabel=f'Log {dataset} Counts',
                      ylabel='Log MERFISH Counts',
-                     outfile=os.path.join(mfx.analysis_folder, f'correlation_{dataset}.png'),
+                     outfile=config.path(f'correlation_{dataset}.png'),
                      omit=[])
 
 
@@ -177,7 +187,7 @@ def cell_volume_histogram(mfx):
     sns.histplot(mfx.celldata['volume'], bins=50)
     plt.xlabel("Cell volume (pixels)")
     plt.tight_layout()
-    plt.savefig(os.path.join(mfx.analysis_folder, "cell_volume.png"), dpi=300)
+    plt.savefig(config.path("cell_volume.png"), dpi=300)
 
 
 def plot_mask(mask):
@@ -195,8 +205,8 @@ def counts_per_cell_histogram(mfx):
     plt.xlabel("Transcript count")
     plt.ylabel("Cell count")
     plt.tight_layout()
-    plt.grid(b=None)
-    plt.savefig(os.path.join(mfx.analysis_folder, "transcript_count_per_cell.png"), dpi=300)
+    plt.grid(b=False)
+    plt.savefig(config.path("transcript_count_per_cell.png"), dpi=300)
 
 
 def genes_detected_per_cell_histogram(mfx):
@@ -205,8 +215,8 @@ def genes_detected_per_cell_histogram(mfx):
     plt.xlabel("Genes detected")
     plt.ylabel("Cell count")
     plt.tight_layout()
-    plt.grid(b=None)
-    plt.savefig(os.path.join(mfx.analysis_folder, "genes_detected_per_cell.png"), dpi=300)
+    plt.grid(b=False)
+    plt.savefig(config.path("genes_detected_per_cell.png"), dpi=300)
 
 
 def spatial_cell_clusters(mfx):
@@ -216,7 +226,7 @@ def spatial_cell_clusters(mfx):
         x = mfx.global_cell_positions.loc[inds]['global_x']
         y = mfx.global_cell_positions.loc[inds]['global_y']
         plt.scatter(y, x, c=mfx.clustering.cmap[int(cluster) % 20], s=0.5)
-    plt.grid(b=None)
+    plt.grid(b=False)
     plt.axis('off')
     plt.tight_layout()
-    plt.savefig(os.path.join(mfx.analysis_folder, 'spatial_cell_clusters.png'), dpi=300)
+    plt.savefig(config.path('spatial_cell_clusters.png'), dpi=300)

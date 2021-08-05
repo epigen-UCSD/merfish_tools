@@ -155,7 +155,7 @@ class MaskList:
 
     @cached_property
     def links(self):
-        cell_link_file = os.path.join(self.mfx.analysis_folder, "cell_links.csv")
+        cell_link_file = config.path("cell_links.csv")
         if os.path.exists(cell_link_file) and not config.get('rerun'):
             print("Loading existing cell links")
             links = load_cell_links(cell_link_file)

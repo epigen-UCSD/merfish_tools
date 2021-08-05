@@ -18,27 +18,27 @@ class ScanpyObject:
         self.cmap = ['#e6194B', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#42d4f4',
                      '#f032e6', '#bfef45', '#fabed4', '#469990', '#dcbeff', '#9A6324', '#fffac8',
                      '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#a9a9a9']
-        sc.settings.figdir = self.mfx.analysis_folder
+        sc.settings.figdir = config.path('')
         sc.set_figure_params(dpi_save=300, figsize=(5, 5))
 
     @cached_property
     def scdata(self):
-        if not os.path.exists(os.path.join(self.mfx.analysis_folder, 'scanpy_object.h5ad')) or config.get('rerun'):
+        if not os.path.exists(config.path('scanpy_object.h5ad')) or config.get('rerun'):
             return self.initialize()
         else:
-            return sc.read(os.path.join(self.mfx.analysis_folder, 'scanpy_object.h5ad'))
+            return sc.read(config.path('scanpy_object.h5ad'))
 
     @announce("Building scanpy object and normalizing counts")
     def initialize(self):
-        scdata = sc.read_csv(os.path.join(self.mfx.analysis_folder, "single_cell_raw_counts.csv"), first_column_names=True)
-        gcells = self.mfx.global_cell_positions#[['global_y', 'global_x']]
+        scdata = sc.read_csv(config.path("single_cell_raw_counts.csv"), first_column_names=True)
+        gcells = self.mfx.global_cell_positions
         scdata.obsm['X_spatial'] = np.array(gcells.reindex(index=scdata.obs.index.astype(int)))
         sc.pp.calculate_qc_metrics(scdata, percent_top=None, inplace=True)
         sc.pp.normalize_total(scdata, target_sum=np.median(scdata.obs['total_counts']))
         sc.pp.log1p(scdata)
         scdata.raw = scdata
         scdata.X = scdata.to_df().apply(zscore, axis=0).to_numpy()
-        scdata.write(os.path.join(self.mfx.analysis_folder, 'scanpy_object.h5ad'))
+        scdata.write(config.path('scanpy_object.h5ad'))
         return scdata
 
     @cached_property
@@ -72,7 +72,7 @@ class ScanpyObject:
         sc.pl.umap(self.scdata, color='leiden', add_outline=True, legend_loc='on data',
                    legend_fontsize=12, legend_fontoutline=2, frameon=False,
                    title=f'{nclusts} clusters of {len(self.scdata):,d} cells', palette=self.cmap, save='_clusters.png')
-        self.scdata.write(os.path.join(self.mfx.analysis_folder, 'scanpy_object.h5ad'))
+        self.scdata.write(config.path('scanpy_object.h5ad'))
         print("done")
 
     @cached_property

@@ -14,6 +14,8 @@ def main():
                         dest='rerun', action='store_true')
     parser.add_argument('-c', '--config_file', help='Path to the configuration file in JSON format',
                         dest='config_file', type=str)
+    parser.add_argument('-o', '--output', help='Sub-folder to save all files produced by the pipeline',
+                        dest='result_folder', type=str)
     args = parser.parse_args()
     config.load(args)
     mfx = MerfishExperiment()

@@ -1,6 +1,7 @@
 """Global configuration settings for the pipeline."""
 
 import json
+import os
 
 config = {}
 
@@ -32,3 +33,8 @@ def load(args):
         if value is None:
             continue
         config[key] = value
+
+
+def path(filename):
+    return os.path.join(get('analysis_root'), get('experiment_name'),
+                        get('result_folder'), filename)

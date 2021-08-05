@@ -29,7 +29,7 @@ class Stats:
         """Create Stats object and load existing stats from file, if it exists. mfx is a MerfishExperiment."""
         self.mfx = mfx
         self.analysis_folder = self.mfx.analysis_folder
-        self.filepath = os.path.join(mfx.analysis_folder, 'stats.json')
+        self.filepath = config.path('stats.json')
         self.functions = {
             'FOVs': lambda stats: len(stats.mfx.raw_barcode_files),
             'Unfiltered barcode count': count_unfiltered_barcodes,
@@ -42,8 +42,8 @@ class Stats:
             '% exact barcodes': lambda stats: self.global_error['% exact barcodes'],
             '0->1 error rate': lambda stats: self.global_error['0->1 error rate'],
             '1->0 error rate': lambda stats: self.global_error['1->0 error rate'],
-            'Pre-filtering 0->1 error rate': lambda stats: self.global_error_prefiltered['0->1 error rate'],
-            'Pre-filtering 1->0 error rate': lambda stats: self.global_error_prefiltered['1->0 error rate'],
+            #'Pre-filtering 0->1 error rate': lambda stats: self.global_error_prefiltered['0->1 error rate'],
+            #'Pre-filtering 1->0 error rate': lambda stats: self.global_error_prefiltered['1->0 error rate'],
             'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
             'Average per-bit 1->0 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '1->0']['Error rate'].mean(),
             'Segmented cells': lambda stats: len(np.unique(self.mfx.celldata.index)),
@@ -99,8 +99,9 @@ class Stats:
             newdata = process_fov(filename, normcodes, codebook)
             data = pd.concat([data, newdata], ignore_index=True)
             stats = error_stats(data)
-            if abs(stats['0->1 error rate'] - zero2one) < 0.0001 and abs(stats['1->0 error rate'] - one2zero) < 0.001:
+            if abs(stats['0->1 error rate'] - zero2one) < 0.001 and abs(stats['1->0 error rate'] - one2zero) < 0.001:
                 stable_count += 1
+                print(stable_count)
                 if stable_count >= 3:
                     break
             else:

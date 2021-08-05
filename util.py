@@ -29,7 +29,7 @@ def csv_cached_property(csvname: str, save_index: bool = False, index_col: int =
     def decorator_csv(func):
         @cached_property
         def wrapper(self, *args, **kwargs):
-            filename = os.path.join(self.analysis_folder, csvname)
+            filename = config.path(csvname)
             if not os.path.exists(filename) or config.get('rerun'):
                 csv = func(self, *args, **kwargs)
                 csv.to_csv(filename, index=save_index)
