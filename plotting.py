@@ -230,3 +230,14 @@ def spatial_cell_clusters(mfx):
     plt.axis('off')
     plt.tight_layout()
     plt.savefig(config.path('spatial_cell_clusters.png'), dpi=300)
+
+
+def fov_number_map(mfx):
+    plt.figure(figsize=(12,16), facecolor='white')
+    plt.scatter(x=mfx.positions['x'], y=mfx.positions['y'], c='w')
+    for i, row in mfx.positions.iterrows():
+        plt.text(x=row['x'], y=row['y'], s=row.name)
+    plt.grid(b=False)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(config.path('fov_number_map.png'), dpi=150)
