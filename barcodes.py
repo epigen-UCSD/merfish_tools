@@ -12,8 +12,10 @@ class Barcodes:
         print("Loading barcodes...", end='', flush=True)
         barcode_file = os.path.join(self.mfx.analysis_folder, "ExportBarcodes", "barcodes.csv")
         self.barcodes = pd.read_csv(barcode_file)
+        self.filter_fovs(keep=mfx.fovs)
         print(f"{len(self.barcodes):,d} barcodes found")
-        # TODO: Trim barcodes on margins
+        # TODO: Automatically determine trim margin parameters
+        self.trim_barcodes_on_margins(left=99, right=99, top=99, bottom=99)
         # TODO: Remove FOVs in blacklist
         # While this is fairly time consuming, we do it on construction because most of the methods of
         # this class should be used with assigned barcodes
@@ -39,20 +41,20 @@ class Barcodes:
         return len(np.unique(self.barcodes[self.barcodes['cell_id'].isin(self.mfx.celldata['cell_id'])]['cell_id']))
 
     def trim_barcodes_on_margins(self, left=0, right=0, top=0, bottom=0):
-        # TODO: Automatically decide on trimming based on drifts
+        # TODO: Automatically decide on trimming based on drifts and overlaps
         self.barcodes = self.barcodes[self.barcodes['x'] >= left]
         self.barcodes = self.barcodes[self.barcodes['y'] >= top]
         self.barcodes = self.barcodes[self.barcodes['x'] <= 2048 - right]
         self.barcodes = self.barcodes[self.barcodes['y'] <= 2048 - bottom]
 
-    def drop_fovs(self, fovs):
-        self.barcodes = self.barcodes[~self.barcodes['fov'].isin(fovs)]
+    def filter_fovs(self, keep):
+        self.barcodes = self.barcodes[self.barcodes['fov'].isin(keep)]
 
     def calculate_global_coordinates(self, positions):
         def convert_to_global(group):
             fov = int(group.iloc[0]['fov'])
-            ypos = positions.iloc[fov][0]
-            xpos = positions.iloc[fov][1]
+            ypos = positions.loc[fov][0]
+            xpos = positions.loc[fov][1]
             group['global_y'] = 220 * (2048 - group['y']) / 2048 + ypos
             group['global_x'] = 220 * group['x'] / 2048 + xpos
             return group[['global_x', 'global_y']]
@@ -74,8 +76,8 @@ class Barcodes:
         cellids = []
         for fov, group in tqdm(self.barcodes.groupby('fov'), desc="Assigning barcodes to cells"):
             if drifts is not None:
-                xdrift = drifts.iloc[fov]['X drift']
-                ydrift = drifts.iloc[fov]['Y drift']
+                xdrift = drifts.loc[fov]['X drift']
+                ydrift = drifts.loc[fov]['Y drift']
             else:
                 xdrift, ydrift = 0, 0
             cellids.append(group.apply(get_cell_id, axis=1))

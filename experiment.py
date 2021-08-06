@@ -40,16 +40,21 @@ class MerfishExperiment:
         return Stats(self)
 
     @cached_property
+    def fovs(self) -> typing.List[int]:
+        df = pd.read_csv(os.path.join(self.analysis_folder, "positions.csv"), header=None)
+        return [i for i in range(len(df)) if i not in config.get('omit_fovs')]
+
+    @cached_property
     def raw_barcode_files(self) -> typing.List[str]:
         """Get the list of raw barcode files produced by MERlin."""
-        return glob.glob(os.path.join(self.analysis_folder, "Decode", "barcodes",
-                                      "barcode_data_*.h5"))
+        folder = os.path.join(self.analysis_folder, "Decode", "barcodes")
+        return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
 
     @cached_property
     def filtered_barcode_files(self) -> typing.List[str]:
         """Get the list of filtered barcode files produced by MERlin."""
-        return glob.glob(os.path.join(self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes",
-                                      "barcode_data_*.h5"))
+        folder = os.path.join(self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes")
+        return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
 
     @cached_property
     def barcodes(self) -> Barcodes:
@@ -89,8 +94,8 @@ class MerfishExperiment:
         round for that FOV. These drifts are calculated by MERlin.
         """
         rows = []
-        files = glob.glob(os.path.join(self.analysis_folder, "FiducialCorrelationWarp",
-                                       "transformations", "offsets_*.npy"))
+        folder = os.path.join(self.analysis_folder, "FiducialCorrelationWarp", "transformations")
+        files = [os.path.join(folder, f"offsets_{fov}.npy") for fov in self.fovs]
         num_colors = len(self.barcode_colors)
         for fov, filename in enumerate(files):
             drifts = np.load(filename, allow_pickle=True)
@@ -98,7 +103,7 @@ class MerfishExperiment:
                 rows.append([fov, hyb, drift.params[0][2], drift.params[1][2]])
         return pd.DataFrame(rows, columns=["FOV", "Hybridization round", "X drift", "Y drift"])
 
-    @csv_cached_property('mask_drifts.csv')
+    @csv_cached_property('mask_drifts.csv', save_index=True)
     def mask_drifts(self) -> pd.DataFrame:
         """Get the drifts between the DAPI/polyA staining and first hybridization round.
 
@@ -110,7 +115,7 @@ class MerfishExperiment:
         # TODO: Number of channels in H0 and H1 images are hardcoded
         # TODO: Fiducial channel to use is hardcoded
         drifts = []
-        for fov in tqdm(range(len(self.masks)), desc="Calculating drifts between barcodes and masks"):
+        for fov in tqdm(self.fovs, desc="Calculating drifts between barcodes and masks"):
             h0 = DaxFile(os.path.join(self.data_folder, f'Conv_zscan_H0_F_{fov:03d}.dax'),
                          num_channels=5).zslice(0, channel=2)
             h1 = DaxFile(os.path.join(self.data_folder, f'Conv_zscan_H1_F_{fov:03d}.dax'),
@@ -119,6 +124,8 @@ class MerfishExperiment:
         driftdf = pd.concat(drifts, axis=1).T
         driftdf.columns = ['Y drift', 'X drift']
         driftdf = driftdf.fillna(0)
+        driftdf['FOV'] = self.fovs
+        driftdf = driftdf.set_index('FOV')
         return driftdf
 
     @cached_property
@@ -152,6 +159,7 @@ class MerfishExperiment:
         """
         df = pd.read_csv(os.path.join(self.analysis_folder, "positions.csv"), header=None)
         df.columns = ['x', 'y']
+        df = df.reindex(index=self.fovs)  # Drop omitted FOVs
         return df
 
     @cached_property
@@ -164,7 +172,6 @@ class MerfishExperiment:
         """Get the cell metadata.
 
         The table contains metadata about cells such as their position and volume.
-
         """
         celldata = self.masks.create_metadata_table(use_overlaps=True)
         celldata = segmentation.filter_by_volume(celldata,
@@ -172,7 +179,7 @@ class MerfishExperiment:
                                                  max_factor=config.get('maximum_cell_volume'))
         return celldata
 
-    @csv_cached_property('global_cell_positions.csv', save_index=True, index_col=0)
+    @csv_cached_property('global_cell_positions.csv', save_index=True)
     def global_cell_positions(self) -> pd.DataFrame:
         """Get the global positions of cells.
 
@@ -180,7 +187,7 @@ class MerfishExperiment:
         """
         return segmentation.get_global_cell_positions(self.celldata, self.positions)
 
-    @csv_cached_property('single_cell_raw_counts.csv', save_index=True, index_col=0)
+    @csv_cached_property('single_cell_raw_counts.csv', save_index=True)
     def single_cell_raw_counts(self) -> pd.DataFrame:
         """Get the cell-by-gene table of raw molecule counts per cell."""
         return self.barcodes.cell_by_gene_table

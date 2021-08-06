@@ -31,11 +31,13 @@ def find_fov_overlaps(positions):
     overlaps = []
     pairs = set()
     for i, (dists, fovs) in enumerate(zip(*res)):
+        i = positions.iloc[i].name
         for dist, fov in zip(dists, fovs):
+            fov = positions.iloc[fov].name
             if dist == 0 or (i, fov) in pairs:
                 continue
             pairs.update([(i, fov), (fov, i)])
-            diff = positions.iloc[i] - positions.iloc[fov]
+            diff = positions.loc[i] - positions.loc[fov]
             overlaps.append([(i, get_slice(diff[0]), get_slice(-diff[1])),
                              (fov, get_slice(-diff[0]), get_slice(diff[1]))])
     return overlaps
@@ -106,8 +108,8 @@ def get_global_cell_positions(celldata, positions):
     gxs = []
     gys = []
     for _, cell in celldata.iterrows():
-        gxs.append(220 * (2048-cell['fov_y']) / 2048 + positions.iloc[int(cell['fov'])]['x'])
-        gys.append(220 * cell['fov_x'] / 2048 + positions.iloc[int(cell['fov'])]['y'])
+        gxs.append(220 * (2048-cell['fov_y']) / 2048 + positions.loc[int(cell['fov'])]['x'])
+        gys.append(220 * cell['fov_x'] / 2048 + positions.loc[int(cell['fov'])]['y'])
     gxs = [-x for x in gxs]
     celldata['global_x'] = gxs
     celldata['global_y'] = gys
@@ -137,12 +139,12 @@ class MaskList:
         self._fov_renamed = False
         self._link_renamed = False
         if files is None:
-            self.files = list(sorted(glob.glob(os.path.join(segmask_dir, "*_cp_masks.png"))))
+            self.files = {fov:os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png") for fov in mfx.fovs}
         if masks is None:
-            self._masks = [None]*len(self.files)
+            self._masks = {}
 
     def __getitem__(self, fov):
-        if self._masks[fov] is None:
+        if fov not in self._masks:
             self._masks[fov] = np.asarray(PIL.Image.open(self.files[fov]))
         return self._masks[fov]
 
@@ -167,7 +169,7 @@ class MaskList:
     def rename_cells_with_fov(self):
         if self._fov_renamed:
             return
-        for fov in tqdm(range(len(self)), desc="Adding FOV to cell names"):
+        for fov in tqdm(self.mfx.fovs, desc="Adding FOV to cell names"):
             mask = self[fov].copy()
             mask[mask > 0] += fov * 10000
             self._masks[fov] = mask
@@ -223,7 +225,7 @@ class MaskList:
         if use_overlaps:
             self.link_cells_in_overlaps()
         rows = []
-        for fov in tqdm(range(len(self)), desc="Creating cell metadata table"):
+        for fov in tqdm(self.mfx.fovs, desc="Creating cell metadata table"):
             mask = self[fov]
             unique, counts = np.unique(mask, return_counts=True)
             if exclude_edge:

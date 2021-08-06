@@ -31,7 +31,7 @@ class Stats:
         self.analysis_folder = self.mfx.analysis_folder
         self.filepath = config.path('stats.json')
         self.functions = {
-            'FOVs': lambda stats: len(stats.mfx.raw_barcode_files),
+            'FOVs': lambda stats: len(mfx.fovs),
             'Unfiltered barcode count': count_unfiltered_barcodes,
             'Filtered barcode count': lambda stats: len(stats.mfx.barcodes),
             'Unfiltered barcodes per FOV': lambda stats: stats['Unfiltered barcode count'] / stats['FOVs'],
@@ -132,7 +132,7 @@ class Stats:
         """Get barcode error statistics for sampling of FOVs before adaptive filtering was applied."""
         return error_stats(self.error_counts_prefiltered)
 
-    @csv_cached_property('per_gene_error.csv', save_index=True, index_col=0)
+    @csv_cached_property('per_gene_error.csv', save_index=True)
     def per_gene_error(self) -> pd.DataFrame:
         """Get barcode error statistics per gene."""
         return self.error_counts.groupby('name').apply(error_stats).sort_values(by='% exact barcodes', ascending=False)
@@ -190,6 +190,7 @@ class Stats:
         plotting.per_bit_error_line(self.mfx)
         plotting.per_color_error(self.mfx)
         plotting.per_hyb_error(self.mfx)
+        plotting.fov_number_map(self.mfx)
         plotting.fov_error_bar(self.mfx)
         plotting.fov_error_spatial(self.mfx)
         for dataset in config.get('reference_counts'):

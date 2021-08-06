@@ -25,11 +25,15 @@ def announce(message: str):
     return decorator_announce
 
 
-def csv_cached_property(csvname: str, save_index: bool = False, index_col: int = None):
+def csv_cached_property(csvname: str, save_index: bool = False):
     def decorator_csv(func):
         @cached_property
         def wrapper(self, *args, **kwargs):
             filename = config.path(csvname)
+            if save_index:
+                index_col = 0
+            else:
+                index_col = None
             if not os.path.exists(filename) or config.get('rerun'):
                 csv = func(self, *args, **kwargs)
                 csv.to_csv(filename, index=save_index)
