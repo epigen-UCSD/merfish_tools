@@ -46,7 +46,7 @@ for bit in range(1, bits+1):
     name = f'bit{bit}'
     round = str(((bit - 1) // len(colors)) + 1)
     color = colors[(bit - 1) % len(colors)]
-    frames = str(list(range(bit % len(colors), n_frames, len(colors) + 1)))
+    frames = str(list(range((bit - 1) % len(colors), n_frames, len(colors) + 1)))
     zpos = str(list(range(0, zstacks)))
     row = [name, name, image_type, regexp, str(bit), round, color, f'"{frames}"', f'"{zpos}"',
            image_type, regexp, round, '11', fiducial_color]
