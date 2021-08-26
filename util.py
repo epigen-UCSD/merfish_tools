@@ -44,7 +44,8 @@ def csv_cached_property(csvname: str, save_index: bool = False):
 
 def expand_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
     books = [codebook]
-    for bit in range(1, 17):  # TODO: The number of bits shouldn't be hardcoded
+    bits = len(codebook.filter(like='bit').columns)
+    for bit in range(1, bits+1):
         flip = codebook.copy()
         flip[f'bit{bit}'] = (~flip[f'bit{bit}'].astype(bool)).astype(int)
         flip['id'] = flip['id'] + f'_flip{bit}'
