@@ -8,10 +8,13 @@ import os
 import glob
 import typing
 from functools import cached_property
+from matplotlib.pyplot import bar
 
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from scipy.linalg import norm
+from sklearn.neighbors import NearestNeighbors
 
 import config
 from stats import Stats
@@ -55,11 +58,6 @@ class MerfishExperiment:
         """Get the list of filtered barcode files produced by MERlin."""
         folder = os.path.join(self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes")
         return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
-
-    @cached_property
-    def barcodes(self) -> Barcodes:
-        """Get all filtered barcodes."""
-        return Barcodes(self)
 
     @cached_property
     def data_organization(self) -> pd.DataFrame:
@@ -167,6 +165,46 @@ class MerfishExperiment:
         """Get the segmentation masks."""
         return segmentation.MaskList(mfx=self, segmask_dir=self.segmask_folder)
 
+    @csv_cached_property('unassigned_barcodes.csv')
+    def unassigned_barcodes(self) -> pd.DataFrame:
+        """Get the table of filtered barcodes output by MERlin.
+
+        This does not load the table in the FilteredBarcodes folder from MERlin, but rather
+        constructs a new table from the barcode data in AdaptiveFilteredBarcodes. This is
+        so the barcodes can be annotated with error correction information.
+        """
+        codebook = self.mfx.expanded_codebook
+        codes = codebook.filter(like='bit')
+        normcodes = codes.apply(lambda row: row / norm(row), axis=1)
+        neighbors = NearestNeighbors(n_neighbors=1, algorithm='ball_tree', n_jobs=16)
+        neighbors.fit(normcodes)
+        dfs = []
+        for fov, barcode_file in tqdm(zip(self.mfx.fovs, self.mfx.filtered_barcode_files), desc='Preparing barcodes'):
+            barcodes = pd.read_hdf(barcode_file)
+            # Get just the intensity columns for convenience
+            intensities = barcodes[[f'intensity_{i}' for i in range(22)]]
+
+            # Find nearest
+            distances, indexes = neighbors.kneighbors(intensities, return_distance=True)
+
+            res = codebook.iloc[indexes.T[0]].copy()
+            res['fov'] = fov
+            res = res.set_index(['name', 'id', 'fov']).filter(like='bit').sum(axis=1)
+            res = pd.DataFrame(res, columns=['bits']).reset_index()
+
+            testdf = barcodes[['barcode_id', 'fov', 'x', 'y', 'z']]
+            testdf = testdf.reset_index(drop=True)
+            testdf['gene'] = res['name']
+            testdf['error_type'] = res['bits'] - 4
+            testdf['error_bit'] = res['id'].str.split('flip', expand=True)[1].fillna(0)
+            dfs.append(testdf)
+        return pd.concat(dfs)
+
+    @csv_cached_property('assigned_barcodes.csv')
+    def assigned_barcodes(self) -> pd.DataFrame:
+        """Get the table of barcodes assigned to cells, but not filtered."""
+        return Barcodes(self).barcodes
+
     @csv_cached_property('cell_metadata.csv')
     def celldata(self) -> pd.DataFrame:
         """Get the cell metadata.
@@ -190,7 +228,13 @@ class MerfishExperiment:
     @csv_cached_property('single_cell_raw_counts.csv', save_index=True)
     def single_cell_raw_counts(self) -> pd.DataFrame:
         """Get the cell-by-gene table of raw molecule counts per cell."""
-        return self.barcodes.cell_by_gene_table
+        # Create cell by gene table
+        filtered_barcodes = self.assigned_barcodes[self.assigned_barcodes['status'] == 'good']
+        ctable = pd.crosstab(index=filtered_barcodes.cell_id, columns=filtered_barcodes.gene)
+        # Drop blank barcodes
+        drop_cols = [col for col in ctable.columns if 'notarget' in col or 'blank' in col]
+        ctable = ctable.drop(columns=drop_cols)
+        return ctable
 
     @cached_property
     def clustering(self) -> ScanpyObject:

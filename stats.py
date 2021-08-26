@@ -15,7 +15,6 @@ import numpy as np
 from tqdm import tqdm
 from scipy.linalg import norm
 from scipy.stats import pearsonr
-from sklearn.neighbors import NearestNeighbors
 
 import config
 import plotting
@@ -33,15 +32,15 @@ class Stats:
         self.functions = {
             'FOVs': lambda stats: len(mfx.fovs),
             'Unfiltered barcode count': count_unfiltered_barcodes,
-            'Filtered barcode count': lambda stats: len(stats.mfx.barcodes),
+            'Filtered barcode count': lambda stats: len(stats.mfx.unassigned_barcodes),
             'Unfiltered barcodes per FOV': lambda stats: stats['Unfiltered barcode count'] / stats['FOVs'],
             'Filtered barcodes per FOV': lambda stats: stats['Filtered barcode count'] / stats['FOVs'],
             '% barcodes kept': lambda stats: stats['Filtered barcode count'] / stats['Unfiltered barcode count'],
-            'Exact barcode count': lambda stats: self.global_error['Exact barcode count'],
-            'Corrected barcode count': lambda stats: self.global_error['Corrected barcode count'],
-            '% exact barcodes': lambda stats: self.global_error['% exact barcodes'],
-            '0->1 error rate': lambda stats: self.global_error['0->1 error rate'],
-            '1->0 error rate': lambda stats: self.global_error['1->0 error rate'],
+            'Exact barcode count': lambda stats: len(self.mfx.unassigned_barcodes[self.mfx.unassigned_barcodes['error_type'] == 0]),
+            'Corrected barcode count': lambda stats: stats['Filtered barcode count'] - stats['Exact barcode count'],
+            '% exact barcodes': lambda stats: stats['Exact barcode count'] / stats['Filtered barcode count'],
+            '0->1 error rate': lambda stats: len(self.mfx.unassigned_barcodes[self.mfx.unassigned_barcodes['error_type'] == 1]) / stats['Filtered barcode count'],
+            '1->0 error rate': lambda stats: len(self.mfx.unassigned_barcodes[self.mfx.unassigned_barcodes['error_type'] == -1]) / stats['Filtered barcode count'],
             #'Pre-filtering 0->1 error rate': lambda stats: self.global_error_prefiltered['0->1 error rate'],
             #'Pre-filtering 1->0 error rate': lambda stats: self.global_error_prefiltered['1->0 error rate'],
             'Average per-bit 0->1 error rate': lambda stats: self.per_bit_error[self.per_bit_error['Error type'] == '0->1']['Error rate'].mean(),
@@ -49,9 +48,9 @@ class Stats:
             'Segmented cells': lambda stats: len(np.unique(self.mfx.celldata.index)),
             'Segmented cells per FOV': lambda stats: stats['Segmented cells'] / stats['FOVs'],
             'Median cell volume (pixels)': lambda stats: np.median(stats.mfx.celldata['volume']),
-            'Barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells,
-            '% barcodes assigned to cells': lambda stats: self.mfx.barcodes.in_cells / len(self.mfx.barcodes),
-            'Cells with barcodes': lambda stats: self.mfx.barcodes.cell_count,
+            'Barcodes assigned to cells': lambda stats: len(self.mfx.assigned_barcodes[self.mfx.assigned_barcodes['status'] == 'good']),
+            '% barcodes assigned to cells': lambda stats: stats['Barcodes assigned to cells'] / len(self.mfx.assigned_barcodes[self.mfx.assigned_barcodes['status'] != 'edge']),
+            'Cells with barcodes': lambda stats: len(np.unique(self.mfx.assigned_barcodes[self.mfx.assigned_barcodes['status'] == 'good']['cell_id'])),
             '% cells with barcodes': lambda stats: stats['Cells with barcodes'] / stats['Segmented cells'],
             'Median transcripts per cell': lambda stats: np.median(self.mfx.single_cell_raw_counts.apply(np.sum, axis=1)),
             'Median genes detected per cell': lambda stats: np.median(self.mfx.single_cell_raw_counts.astype(bool).sum(axis=1)),
@@ -111,36 +110,20 @@ class Stats:
 
         return data
 
-    @csv_cached_property('error_counts.csv')
-    def error_counts(self) -> pd.DataFrame:
-        """Calculate the barcode error statistics."""
-        # L2 normalize the expanded codebook
-        codebook = self.mfx.expanded_codebook
-        codes = codebook.filter(like='bit')
-        normcodes = codes.apply(lambda row: row / norm(row), axis=1)
-
-        dfs = [process_fov(filename, normcodes, codebook) for filename in tqdm(self.mfx.filtered_barcode_files, desc='Getting error rates')]
-        return pd.concat(dfs, ignore_index=True)
-
-    @cached_property
-    def global_error(self) -> pd.Series:
-        """Get barcode error statistics aggregated across the entire experiment."""
-        return error_stats(self.error_counts)
-
-    @cached_property
-    def global_error_prefiltered(self) -> pd.Series:
-        """Get barcode error statistics for sampling of FOVs before adaptive filtering was applied."""
-        return error_stats(self.error_counts_prefiltered)
 
     @csv_cached_property('per_gene_error.csv', save_index=True)
     def per_gene_error(self) -> pd.DataFrame:
         """Get barcode error statistics per gene."""
-        return self.error_counts.groupby('name').apply(error_stats).sort_values(by='% exact barcodes', ascending=False)
+        temp = self.mfx.unassigned_barcodes.groupby(['gene', 'error_type']).count().reset_index().pivot(index='gene', columns='error_type', values='barcode_id')
+        temp.columns = ['1->0 errors', 'Exact barcodes', '0->1 errors']
+        temp['Total barcodes'] = temp['1->0 errors'] + temp['0->1 errors'] + temp['Exact barcodes']
+        temp['% exact barcodes'] = temp['Exact barcodes'] / temp['Total barcodes']
+        return temp
 
     @cached_property
     def per_bit_error(self) -> pd.DataFrame:
         """Get barcode error statistics per bit."""
-        err_rates = self.error_counts.groupby('name').apply(get_per_bit_stats).reset_index()
+        err_rates = pd.concat(get_per_bit_stats(gene, group) for gene, group in self.mfx.unassigned_barcodes.groupby('gene'))
         err_rates['Color'] = err_rates.apply(lambda row: self.mfx.barcode_colors[(row['Bit']-1) % len(self.mfx.barcode_colors)], axis=1)
         err_rates['Hybridization round'] = err_rates.apply(lambda row: ((row['Bit']-1) // len(self.mfx.barcode_colors))+1, axis=1)
         return err_rates
@@ -148,11 +131,11 @@ class Stats:
     @cached_property
     def per_fov_error(self) -> pd.DataFrame:
         """Get barcode error statistics per FOV."""
-        fovs = self.error_counts.groupby('fov').apply(error_stats)
-        fovs['FOV'] = fovs.index
-        fovs.columns = ['Count', 'No errors', 'Errors', 'Correct', '0 -> 1', '1 -> 0', 'FOV']
-        fovs = fovs.melt(id_vars='FOV', value_vars=['0 -> 1', '1 -> 0'], var_name='Error type', value_name='Error rate')
-        return fovs
+        foverr = self.mfx.unassigned_barcodes.groupby(['fov', 'error_type']).count()['gene'] / self.mfx.unassigned_barcodes.groupby('fov').count()['gene']
+        foverr = foverr.reset_index()
+        foverr.columns = ['FOV', 'Error type', 'Error rate']
+        foverr['Error type'] = foverr['Error type'].replace([0, -1, 1], ['Correct', '1->0', '0->1'])
+        return foverr
 
     @cached_property
     def merfish_gene_counts(self) -> dict:
@@ -165,7 +148,7 @@ class Stats:
 
     def reference_gene_counts(self, filename) -> dict:
         if filename not in self._ref_counts:
-            refcounts = pd.read_csv('/storage/RNA_MERFISH/Reference_Data/W15_scrna_norm_counts.csv')
+            refcounts = pd.read_csv('/storage/RNA_MERFISH/Reference_Data/W15_all_genes_norm.csv')
             self._ref_counts[filename] = dict(zip(refcounts['geneName'], np.log10(refcounts['counts'])))
         return self._ref_counts[filename]
 
@@ -229,49 +212,14 @@ def count_unfiltered_barcodes(stats: Stats) -> int:
     return raw_count
 
 
-def process_fov(filename: str, normcodes: pd.DataFrame, codebook: pd.DataFrame) -> pd.DataFrame:
-    """Determine the virtual bit correction for barcodes in this FOV."""
-    barcodes = pd.read_hdf(filename)
-    fov = int(filename.split('_')[-1].split('.')[0])
-
-    # Get just the intensity columns for convenience
-    intensities = barcodes[[f'intensity_{i}' for i in range(16)]]
-    intensities = intensities.rename(columns=lambda x: 'intensity_' + str(int(x.split('_')[1])+1))
-
-    # Find nearest
-    neighbors = NearestNeighbors(n_neighbors=1, algorithm='ball_tree', n_jobs=16)
-    neighbors.fit(normcodes)
-    distances, indexes = neighbors.kneighbors(intensities, return_distance=True)
-
-    df = codebook.iloc[indexes.T[0]].copy()
-    df['fov'] = fov
-    df = df.set_index(['name', 'id', 'fov']).filter(like='bit').sum(axis=1)
-    df = pd.DataFrame(df, columns=['bits']).set_index(['bits'], append=True)
-    df['count'] = df.index.value_counts()
-
-    return df.reset_index().drop_duplicates()
-
-
-def error_stats(data: pd.DataFrame) -> pd.Series:
-    c = data.groupby('bits')['count'].sum()
-    total = sum(c)
-    exact = c[4] if 4 in c else 0
-    one2zero = c[3] if 3 in c else 0
-    zero2one = c[5] if 5 in c else 0
-    columns = ["Barcodes", "Exact barcode count", "Corrected barcode count",
-               "% exact barcodes", "0->1 error rate", "1->0 error rate"]
-    return pd.Series(
-        [total, exact, one2zero+zero2one, exact / total, zero2one / total, one2zero / total],
-        index=columns)
-
-
-def get_per_bit_stats(data: pd.DataFrame) -> pd.DataFrame:
-    total = data['count'].sum()
-    data = data[data['id'] != data.name]
-    err_rates = pd.DataFrame(data.groupby(['id', 'bits'])['count'].sum() / total).reset_index()
-    err_rates = err_rates.replace({'bits': {5: '0->1', 3: '1->0'}})
-    err_rates = err_rates.replace({'id': r'[^_]+_flip'}, {'id': ''}, regex=True)
-    err_rates.columns = ['Bit', 'Error type', 'Error rate']
-    err_rates['Bit'] = pd.to_numeric(err_rates['Bit'])
-
-    return err_rates.set_index('Bit')
+def get_per_bit_stats(gene: str, barcodes: pd.DataFrame) -> pd.DataFrame:
+    k0 = len(barcodes[barcodes['error_type'] == 0])
+    total = len(barcodes)
+    rows = []
+    for bit in range(1, 23):
+        errors = barcodes[barcodes['error_bit'] == bit]
+        k1 = len(errors)
+        err_type = '1->0' if errors.iloc[0]['error_type'] == -1 else '0->1'
+        rate = (k1 / k0) / (1 + (k1 / k0))
+        rows.append([gene, bit, k1, err_type, rate, rate*total, total])
+    return pd.DataFrame(rows, columns=['gene', 'Bit', 'count', 'Error type', 'Error rate', 'weighted', 'total']).reset_index()

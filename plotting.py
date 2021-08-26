@@ -44,7 +44,7 @@ def exact_vs_corrected(mfx: 'MerfishExperiment') -> None:
 
 
 def confidence_ratios(mfx: 'MerfishExperiment') -> None:
-    gene_stats = mfx.stats.per_gene_error
+    gene_stats = mfx.stats.per_gene_error.sort_values(by='% exact barcodes', ascending=False)
     colors = ['steelblue' if 'blank' not in name and 'notarget' not in name else 'firebrick' for name in gene_stats.index]
     plt.figure()
     plt.bar(range(1, len(gene_stats)+1), gene_stats['% exact barcodes'], width=1, color=colors)
@@ -127,10 +127,10 @@ def fov_error_bar(mfx: 'MerfishExperiment') -> None:
         ax.set_ylim(bottom=d['Error rate'].min()*0.75)
 
     fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(10, 5))
-    fovplot(mfx.stats.per_fov_error[mfx.stats.per_fov_error['Error type'] == '1 -> 0'], ax[0])
-    fovplot(mfx.stats.per_fov_error[mfx.stats.per_fov_error['Error type'] == '0 -> 1'], ax[1])
-    ax[0].set_title("Error type = 1 -> 0")
-    ax[1].set_title("Error type = 0 -> 1")
+    fovplot(mfx.stats.per_fov_error[mfx.stats.per_fov_error['Error type'] == '1->0'], ax[0])
+    fovplot(mfx.stats.per_fov_error[mfx.stats.per_fov_error['Error type'] == '0->1'], ax[1])
+    ax[0].set_title("1->0 error rate")
+    ax[1].set_title("0->1 error rate")
     plt.grid(b=False)
     plt.tight_layout()
     plt.savefig(config.path("fov_error.png"), dpi=300)
@@ -139,12 +139,12 @@ def fov_error_bar(mfx: 'MerfishExperiment') -> None:
 def fov_error_spatial(mfx: 'MerfishExperiment') -> None:
     fovdata = pd.merge(mfx.stats.per_fov_error, mfx.positions, left_on="FOV", right_index=True)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 6))
-    sns.scatterplot(ax=ax1, data=fovdata[fovdata['Error type'] == '1 -> 0'], x='x', y='y', hue="Error rate", palette="YlOrRd")
-    sns.scatterplot(ax=ax2, data=fovdata[fovdata['Error type'] == '0 -> 1'], x='x', y='y', hue="Error rate", palette="YlOrRd")
+    sns.scatterplot(ax=ax1, data=fovdata[fovdata['Error type'] == '1->0'], x='x', y='y', hue="Error rate", palette="YlOrRd")
+    sns.scatterplot(ax=ax2, data=fovdata[fovdata['Error type'] == '0->1'], x='x', y='y', hue="Error rate", palette="YlOrRd")
     ax1.axis("off")
-    ax1.set_title("1 -> 0 error rate")
+    ax1.set_title("1->0 error rate")
     ax2.axis("off")
-    ax2.set_title("0 -> 1 error rate")
+    ax2.set_title("0->1 error rate")
     fig.tight_layout()
     fig.savefig(config.path("fov_error_spatial.png"), dpi=300)
 
