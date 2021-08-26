@@ -3,7 +3,7 @@
 import json
 import os
 
-config = {}
+config = {'omit_fovs': []}
 result_path = None
 
 
@@ -23,7 +23,7 @@ def update(settings: dict) -> None:
 def load_from_file(config_file: str) -> None:
     global config
     with open(config_file) as conf:
-        config = json.loads(conf.read())
+        config.update(json.loads(conf.read()))
 
 
 def load(args):
