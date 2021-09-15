@@ -92,15 +92,14 @@ def add_total_volume(celldata, overcounts):
 
 def filter_by_volume(celldata, min_volume, max_factor):
     # Remove small cells
-    start = len(celldata.index)
-    celldata = celldata.drop(celldata[celldata['volume'] < min_volume].index)
-    print(f"Dropped {start-len(celldata.index)} cells with volume < {min_volume} pixels")
+    celldata.loc[celldata['volume'] < min_volume, 'status'] = 'Too small'
+    print(f"Tagged {len(celldata[celldata['status'] == 'Too small'])} cells with volume < {min_volume} pixels")
 
     # Remove large cells
-    start = len(celldata.index)
-    median = np.median(celldata['volume'])
-    celldata = celldata.drop(celldata[celldata['volume'] > median*max_factor].index)
-    print(f"Dropped {start-len(celldata.index)} cells with volume > {median*max_factor} pixels")
+    median = np.median(celldata[celldata['status'] != 'Too small']['volume'])
+    celldata.loc[celldata['volume'] > median * max_factor, 'status'] = 'Too big'
+    print(f"Tagged {len(celldata[celldata['status'] == 'Too big'])} cells with volume > {median*max_factor} pixels")
+
     return celldata
 
 

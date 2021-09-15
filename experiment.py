@@ -205,25 +205,45 @@ class MerfishExperiment:
         """Get the table of barcodes assigned to cells, but not filtered."""
         return Barcodes(self).barcodes
 
-    @csv_cached_property('cell_metadata.csv')
-    def celldata(self) -> pd.DataFrame:
-        """Get the cell metadata.
+    @csv_cached_property('fov_cell_metadata.csv')
+    def fov_celldata(self) -> pd.DataFrame:
+        """Get the per-fov cell metadata."""
+        return self.masks.create_metadata_table(use_overlaps=True)
 
-        The table contains metadata about cells such as their position and volume.
+    @csv_cached_property('cell_metadata.csv', save_index=True)
+    def celldata(self) -> pd.DataFrame:
+        """Get the global cell metadata.
+
+        The table contains metadata about cells such as their position, volume,
+        and filtered status.
         """
-        celldata = self.masks.create_metadata_table(use_overlaps=True)
+        celldata = self.fov_celldata.drop(columns=['fov_y', 'fov_x', 'fov_volume']).groupby('cell_id').agg({'fov': list, 'volume': max})
+        global_cell_positions = segmentation.get_global_cell_positions(self.fov_celldata, self.positions)
+        celldata = celldata.merge(right=global_cell_positions, left_index=True, right_index=True)
+        celldata['status'] = 'ok'
         celldata = segmentation.filter_by_volume(celldata,
                                                  min_volume=config.get('minimum_cell_volume'),
                                                  max_factor=config.get('maximum_cell_volume'))
         return celldata
 
-    @csv_cached_property('global_cell_positions.csv', save_index=True)
-    def global_cell_positions(self) -> pd.DataFrame:
-        """Get the global positions of cells.
+    def save_celldata(self) -> None:
+        """Resave the cell metadata table after it has been changed."""
+        filename = config.path('cell_metadata.csv')
+        self.celldata.to_csv(filename, index=True)
 
-        TODO: This could be columns in the cell metadata table instead of separate
+    def update_filtered_celldata(self, status: str) -> None:
+        """Update the status of recently filtered cells.
+
+        Look for cells in the cell metadata table with the status 'ok' that
+        are no longer present in the scanpy object (due to some recently applied
+        filtering step) and change their status to the one given, then save the
+        table. This function should be called after doing any type of filtering
+        on the scanpy object.
         """
-        return segmentation.get_global_cell_positions(self.celldata, self.positions)
+        missing = self.celldata.merge(self.single_cell_raw_counts, right_index=True, left_index=True, how='left', indicator=True)
+        missing = missing[(missing['_merge'] == 'left_only') & (missing['status'] == 'ok')].index
+        self.celldata.loc[missing, 'status'] = status
+        self.save_celldata()
 
     @csv_cached_property('single_cell_raw_counts.csv', save_index=True)
     def single_cell_raw_counts(self) -> pd.DataFrame:
@@ -234,6 +254,13 @@ class MerfishExperiment:
         # Drop blank barcodes
         drop_cols = [col for col in ctable.columns if 'notarget' in col or 'blank' in col]
         ctable = ctable.drop(columns=drop_cols)
+        # Update cell metadata table. This is identical to update_filtered_celldata,
+        # but we can't call it here because we're currently constructing the cell by gene
+        # table, so it would cause an infinite recursion.
+        missing = self.celldata.merge(ctable, right_index=True, left_index=True, how='left', indicator=True)
+        missing = missing[(missing['_merge'] == 'left_only') & (missing['status'] == 'ok')].index
+        self.celldata.loc[missing, 'status'] = 'No barcodes'
+        self.save_celldata()
         return ctable
 
     @cached_property

@@ -223,8 +223,8 @@ def spatial_cell_clusters(mfx):
     plt.figure(figsize=(10,12), facecolor='black')
     for cluster in np.unique(mfx.clustering.scdata.obs['leiden']):
         inds = mfx.clustering.scdata.obs[mfx.clustering.scdata.obs['leiden'] == cluster].index.astype(int)
-        x = mfx.global_cell_positions.loc[inds]['global_x']
-        y = mfx.global_cell_positions.loc[inds]['global_y']
+        x = mfx.celldata.loc[inds]['global_x']
+        y = mfx.celldata.loc[inds]['global_y']
         plt.scatter(y, x, c=mfx.clustering.cmap[int(cluster) % 20], s=0.5)
     plt.grid(b=False)
     plt.axis('off')

@@ -31,9 +31,9 @@ class ScanpyObject:
     @announce("Building scanpy object and normalizing counts")
     def initialize(self):
         scdata = sc.AnnData(self.mfx.single_cell_raw_counts)
-        gcells = self.mfx.global_cell_positions
-        scdata.obsm['X_spatial'] = np.array(gcells.reindex(index=scdata.obs.index.astype(int)))
+        scdata.obsm['X_spatial'] = np.array(self.mfx.celldata[['global_x', 'global_y']].reindex(index=scdata.obs.index.astype(int)))
         sc.pp.filter_cells(scdata, min_genes=3)
+        self.mfx.update_filtered_celldata('Low genes')
         sc.pp.calculate_qc_metrics(scdata, percent_top=None, inplace=True)
         sc.pp.normalize_total(scdata, target_sum=np.median(scdata.obs['total_counts']))
         sc.pp.log1p(scdata)
@@ -69,12 +69,12 @@ class ScanpyObject:
         sc.tl.paga(self.scdata)
         sc.pl.paga(self.scdata, plot=False)
         sc.tl.umap(self.scdata, init_pos='paga')
+        print("done")
         nclusts = len(np.unique(self.scdata.obs['leiden']))
         sc.pl.umap(self.scdata, color='leiden', add_outline=True, legend_loc='on data',
                    legend_fontsize=12, legend_fontoutline=2, frameon=False,
                    title=f'{nclusts} clusters of {len(self.scdata):,d} cells', palette=self.cmap, save='_clusters.png')
         self.scdata.write(config.path('scanpy_object.h5ad'))
-        print("done")
 
     @cached_property
     def nclusts(self):

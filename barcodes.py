@@ -31,12 +31,12 @@ class Barcodes:
         return len(self.barcodes[self.barcodes['cell_id'] != 0])
 
     def filter_barcodes(self):
-        self.barcodes.loc[~self.barcodes['cell_id'].isin(self.mfx.celldata['cell_id']), 'status'] = 'bad cell'
+        self.barcodes.loc[~self.barcodes['cell_id'].isin(self.mfx.celldata[self.mfx.celldata['status'] == 'ok'].index), 'status'] = 'bad cell'
         self.barcodes.loc[self.barcodes['cell_id'] == 0, 'status'] = 'no cell'
 
     @cached_property
     def cell_count(self):
-        return len(np.unique(self.barcodes[self.barcodes['cell_id'].isin(self.mfx.celldata['cell_id'])]['cell_id']))
+        return len(np.unique(self.barcodes[self.barcodes['cell_id'].isin(self.mfx.celldata[self.mfx.celldata['status'] == 'ok'].index)]['cell_id']))
 
     def trim_barcodes_on_margins(self, left=0, right=0, top=0, bottom=0):
         self.barcodes.loc[self.barcodes['x'] < left, 'status'] = 'edge'
@@ -77,18 +77,3 @@ class Barcodes:
                 xdrift, ydrift = 0, 0
             cellids.append(group.apply(get_cell_id, axis=1))
         self.barcodes['cell_id'] = pd.concat(cellids)
-
-    @cached_property
-    def cell_by_gene_table(self):
-        # Create cell by gene table
-        filtered_barcodes = self.barcodes[self.barcodes['status'] == '']
-        ctable = pd.crosstab(index=filtered_barcodes.cell_id, columns=filtered_barcodes.barcode_id)
-        # Rename barcode ids to gene names
-        ctable = ctable.rename(columns=lambda n: self.mfx.codebook.loc[n]['name'])
-        # Drop notarget barcodes
-        drop_cols = [col for col in ctable.columns if 'notarget' in col]
-        ctable = ctable.drop(columns=drop_cols)
-        return ctable
-
-    def plot_barcodes_in_fov(self):
-        pass
