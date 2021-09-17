@@ -30,12 +30,15 @@ class MerfishExperiment:
 
     def __init__(self) -> None:
         """Initialize the Experiment object using paths from the config."""
-        self.name = config.get('experiment_name')
-        self.analysis_folder = os.path.join(config.get('analysis_root'), self.name)
-        self.segmask_folder = os.path.join(config.get('segmentation_root'), self.name,
-                                           config.get('segmentation_name'))
-        self.data_folder = os.path.join(config.get('data_root'), self.name)
-        self.mfx = self  # This is dumb, but makes decorators that expect self.mfx to work
+        self.name = config.get("experiment_name")
+        self.analysis_folder = os.path.join(config.get("analysis_root"), self.name)
+        self.segmask_folder = os.path.join(
+            config.get("segmentation_root"), self.name, config.get("segmentation_name")
+        )
+        self.data_folder = os.path.join(config.get("data_root"), self.name)
+        self.mfx = (
+            self  # This is dumb, but makes decorators that expect self.mfx to work
+        )
 
     @cached_property
     def stats(self) -> Stats:
@@ -44,8 +47,10 @@ class MerfishExperiment:
 
     @cached_property
     def fovs(self) -> typing.List[int]:
-        df = pd.read_csv(os.path.join(self.analysis_folder, "positions.csv"), header=None)
-        return [i for i in range(len(df)) if i not in config.get('omit_fovs')]
+        df = pd.read_csv(
+            os.path.join(self.analysis_folder, "positions.csv"), header=None
+        )
+        return [i for i in range(len(df)) if i not in config.get("omit_fovs")]
 
     @cached_property
     def raw_barcode_files(self) -> typing.List[str]:
@@ -56,7 +61,9 @@ class MerfishExperiment:
     @cached_property
     def filtered_barcode_files(self) -> typing.List[str]:
         """Get the list of filtered barcode files produced by MERlin."""
-        folder = os.path.join(self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes")
+        folder = os.path.join(
+            self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes"
+        )
         return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
 
     @cached_property
@@ -78,7 +85,7 @@ class MerfishExperiment:
         """
         # We don't just use np.unique on the column so that we can maintain the ordering
         colors = []
-        for color in self.data_organization['color']:
+        for color in self.data_organization["color"]:
             if color not in colors:
                 colors.append(color)
         return colors
@@ -92,16 +99,20 @@ class MerfishExperiment:
         round for that FOV. These drifts are calculated by MERlin.
         """
         rows = []
-        folder = os.path.join(self.analysis_folder, "FiducialCorrelationWarp", "transformations")
+        folder = os.path.join(
+            self.analysis_folder, "FiducialCorrelationWarp", "transformations"
+        )
         files = [os.path.join(folder, f"offsets_{fov}.npy") for fov in self.fovs]
         num_colors = len(self.barcode_colors)
         for fov, filename in enumerate(files):
             drifts = np.load(filename, allow_pickle=True)
             for hyb, drift in enumerate(drifts[num_colors::num_colors], start=2):
                 rows.append([fov, hyb, drift.params[0][2], drift.params[1][2]])
-        return pd.DataFrame(rows, columns=["FOV", "Hybridization round", "X drift", "Y drift"])
+        return pd.DataFrame(
+            rows, columns=["FOV", "Hybridization round", "X drift", "Y drift"]
+        )
 
-    @csv_cached_property('mask_drifts.csv', save_index=True)
+    @csv_cached_property("mask_drifts.csv", save_index=True)
     def mask_drifts(self) -> pd.DataFrame:
         """Get the drifts between the DAPI/polyA staining and first hybridization round.
 
@@ -113,17 +124,23 @@ class MerfishExperiment:
         # TODO: Number of channels in H0 and H1 images are hardcoded
         # TODO: Fiducial channel to use is hardcoded
         drifts = []
-        for fov in tqdm(self.fovs, desc="Calculating drifts between barcodes and masks"):
-            h0 = DaxFile(os.path.join(self.data_folder, f'Conv_zscan_H0_F_{fov:03d}.dax'),
-                         num_channels=5).zslice(0, channel=2)
-            h1 = DaxFile(os.path.join(self.data_folder, f'Conv_zscan_H1_F_{fov:03d}.dax'),
-                         num_channels=3).zslice(0, channel=2)
+        for fov in tqdm(
+            self.fovs, desc="Calculating drifts between barcodes and masks"
+        ):
+            h0 = DaxFile(
+                os.path.join(self.data_folder, f"Conv_zscan_H0_F_{fov:03d}.dax"),
+                num_channels=5,
+            ).zslice(0, channel=2)
+            h1 = DaxFile(
+                os.path.join(self.data_folder, f"Conv_zscan_H1_F_{fov:03d}.dax"),
+                num_channels=3,
+            ).zslice(0, channel=2)
             drifts.append(calculate_drift(h0, h1))
         driftdf = pd.concat(drifts, axis=1).T
-        driftdf.columns = ['Y drift', 'X drift']
+        driftdf.columns = ["Y drift", "X drift"]
         driftdf = driftdf.fillna(0)
-        driftdf['FOV'] = self.fovs
-        driftdf = driftdf.set_index('FOV')
+        driftdf["FOV"] = self.fovs
+        driftdf = driftdf.set_index("FOV")
         return driftdf
 
     @cached_property
@@ -134,9 +151,11 @@ class MerfishExperiment:
         gene or blank barcode encoded by that row. The 'bit1' through 'bitN' columns
         contain the 0s or 1s of the barcode.
         """
-        return pd.read_csv(glob.glob(os.path.join(self.analysis_folder, "codebook_*.csv"))[0])
+        return pd.read_csv(
+            glob.glob(os.path.join(self.analysis_folder, "codebook_*.csv"))[0]
+        )
 
-    @csv_cached_property('expanded_codebook.csv')
+    @csv_cached_property("expanded_codebook.csv")
     def expanded_codebook(self) -> pd.DataFrame:
         """Get the codebook expanded with single bit errors.
 
@@ -155,8 +174,10 @@ class MerfishExperiment:
 
         The coordinates indicate the top-left corner of the FOV.
         """
-        df = pd.read_csv(os.path.join(self.analysis_folder, "positions.csv"), header=None)
-        df.columns = ['x', 'y']
+        df = pd.read_csv(
+            os.path.join(self.analysis_folder, "positions.csv"), header=None
+        )
+        df.columns = ["x", "y"]
         df = df.reindex(index=self.fovs)  # Drop omitted FOVs
         return df
 
@@ -165,7 +186,7 @@ class MerfishExperiment:
         """Get the segmentation masks."""
         return segmentation.MaskList(mfx=self, segmask_dir=self.segmask_folder)
 
-    @csv_cached_property('unassigned_barcodes.csv')
+    @csv_cached_property("unassigned_barcodes.csv")
     def unassigned_barcodes(self) -> pd.DataFrame:
         """Get the table of filtered barcodes output by MERlin.
 
@@ -174,61 +195,74 @@ class MerfishExperiment:
         so the barcodes can be annotated with error correction information.
         """
         codebook = self.mfx.expanded_codebook
-        codes = codebook.filter(like='bit')
+        codes = codebook.filter(like="bit")
         normcodes = codes.apply(lambda row: row / norm(row), axis=1)
-        neighbors = NearestNeighbors(n_neighbors=1, algorithm='ball_tree', n_jobs=16)
+        neighbors = NearestNeighbors(n_neighbors=1, algorithm="ball_tree", n_jobs=16)
         neighbors.fit(normcodes)
         dfs = []
-        for fov, barcode_file in tqdm(zip(self.mfx.fovs, self.mfx.filtered_barcode_files), desc='Preparing barcodes'):
+        for fov, barcode_file in tqdm(
+            zip(self.mfx.fovs, self.mfx.filtered_barcode_files),
+            desc="Preparing barcodes",
+        ):
             barcodes = pd.read_hdf(barcode_file)
             # Get just the intensity columns for convenience
-            intensities = barcodes[[f'intensity_{i}' for i in range(22)]]
+            intensities = barcodes[[f"intensity_{i}" for i in range(22)]]
 
             # Find nearest
             distances, indexes = neighbors.kneighbors(intensities, return_distance=True)
 
             res = codebook.iloc[indexes.T[0]].copy()
-            res['fov'] = fov
-            res = res.set_index(['name', 'id', 'fov']).filter(like='bit').sum(axis=1)
-            res = pd.DataFrame(res, columns=['bits']).reset_index()
+            res["fov"] = fov
+            res = res.set_index(["name", "id", "fov"]).filter(like="bit").sum(axis=1)
+            res = pd.DataFrame(res, columns=["bits"]).reset_index()
 
-            testdf = barcodes[['barcode_id', 'fov', 'x', 'y', 'z']]
+            testdf = barcodes[["barcode_id", "fov", "x", "y", "z"]]
             testdf = testdf.reset_index(drop=True)
-            testdf['gene'] = res['name']
-            testdf['error_type'] = res['bits'] - 4
-            testdf['error_bit'] = res['id'].str.split('flip', expand=True)[1].fillna(0)
+            testdf["gene"] = res["name"]
+            testdf["error_type"] = res["bits"] - 4
+            testdf["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0)
             dfs.append(testdf)
         return pd.concat(dfs)
 
-    @csv_cached_property('assigned_barcodes.csv')
+    @csv_cached_property("assigned_barcodes.csv")
     def assigned_barcodes(self) -> pd.DataFrame:
         """Get the table of barcodes assigned to cells, but not filtered."""
         return Barcodes(self).barcodes
 
-    @csv_cached_property('fov_cell_metadata.csv')
+    @csv_cached_property("fov_cell_metadata.csv")
     def fov_celldata(self) -> pd.DataFrame:
         """Get the per-fov cell metadata."""
         return self.masks.create_metadata_table(use_overlaps=True)
 
-    @csv_cached_property('cell_metadata.csv', save_index=True)
+    @csv_cached_property("cell_metadata.csv", save_index=True)
     def celldata(self) -> pd.DataFrame:
         """Get the global cell metadata.
 
         The table contains metadata about cells such as their position, volume,
         and filtered status.
         """
-        celldata = self.fov_celldata.drop(columns=['fov_y', 'fov_x', 'fov_volume']).groupby('cell_id').agg({'fov': list, 'volume': max})
-        global_cell_positions = segmentation.get_global_cell_positions(self.fov_celldata, self.positions)
-        celldata = celldata.merge(right=global_cell_positions, left_index=True, right_index=True)
-        celldata['status'] = 'ok'
-        celldata = segmentation.filter_by_volume(celldata,
-                                                 min_volume=config.get('minimum_cell_volume'),
-                                                 max_factor=config.get('maximum_cell_volume'))
+        celldata = (
+            self.fov_celldata.drop(columns=["fov_y", "fov_x", "fov_volume"])
+            .groupby("cell_id")
+            .agg({"fov": list, "volume": max})
+        )
+        global_cell_positions = segmentation.get_global_cell_positions(
+            self.fov_celldata, self.positions
+        )
+        celldata = celldata.merge(
+            right=global_cell_positions, left_index=True, right_index=True
+        )
+        celldata["status"] = "ok"
+        celldata = segmentation.filter_by_volume(
+            celldata,
+            min_volume=config.get("minimum_cell_volume"),
+            max_factor=config.get("maximum_cell_volume"),
+        )
         return celldata
 
     def save_celldata(self) -> None:
         """Resave the cell metadata table after it has been changed."""
-        filename = config.path('cell_metadata.csv')
+        filename = config.path("cell_metadata.csv")
         self.celldata.to_csv(filename, index=True)
 
     def update_filtered_celldata(self, status: str) -> None:
@@ -240,26 +274,44 @@ class MerfishExperiment:
         table. This function should be called after doing any type of filtering
         on the scanpy object.
         """
-        missing = self.celldata.merge(self.single_cell_raw_counts, right_index=True, left_index=True, how='left', indicator=True)
-        missing = missing[(missing['_merge'] == 'left_only') & (missing['status'] == 'ok')].index
-        self.celldata.loc[missing, 'status'] = status
+        missing = self.celldata.merge(
+            self.single_cell_raw_counts,
+            right_index=True,
+            left_index=True,
+            how="left",
+            indicator=True,
+        )
+        missing = missing[
+            (missing["_merge"] == "left_only") & (missing["status"] == "ok")
+        ].index
+        self.celldata.loc[missing, "status"] = status
         self.save_celldata()
 
-    @csv_cached_property('single_cell_raw_counts.csv', save_index=True)
+    @csv_cached_property("single_cell_raw_counts.csv", save_index=True)
     def single_cell_raw_counts(self) -> pd.DataFrame:
         """Get the cell-by-gene table of raw molecule counts per cell."""
         # Create cell by gene table
-        filtered_barcodes = self.assigned_barcodes[self.assigned_barcodes['status'] == 'good']
-        ctable = pd.crosstab(index=filtered_barcodes.cell_id, columns=filtered_barcodes.gene)
+        filtered_barcodes = self.assigned_barcodes[
+            self.assigned_barcodes["status"] == "good"
+        ]
+        ctable = pd.crosstab(
+            index=filtered_barcodes.cell_id, columns=filtered_barcodes.gene
+        )
         # Drop blank barcodes
-        drop_cols = [col for col in ctable.columns if 'notarget' in col or 'blank' in col]
+        drop_cols = [
+            col for col in ctable.columns if "notarget" in col or "blank" in col
+        ]
         ctable = ctable.drop(columns=drop_cols)
         # Update cell metadata table. This is identical to update_filtered_celldata,
         # but we can't call it here because we're currently constructing the cell by gene
         # table, so it would cause an infinite recursion.
-        missing = self.celldata.merge(ctable, right_index=True, left_index=True, how='left', indicator=True)
-        missing = missing[(missing['_merge'] == 'left_only') & (missing['status'] == 'ok')].index
-        self.celldata.loc[missing, 'status'] = 'No barcodes'
+        missing = self.celldata.merge(
+            ctable, right_index=True, left_index=True, how="left", indicator=True
+        )
+        missing = missing[
+            (missing["_merge"] == "left_only") & (missing["status"] == "ok")
+        ].index
+        self.celldata.loc[missing, "status"] = "No barcodes"
         self.save_celldata()
         return ctable
 

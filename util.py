@@ -15,13 +15,16 @@ def announce(message: str):
     tqdm to show a progress bar. The message will be printed when the function
     starts running, then 'done' is printed when it finishes.
     """
+
     def decorator_announce(func):
         def announce_wrapper(*args, **kwargs):
-            print(message+'...', end='', flush=True)
+            print(message + "...", end="", flush=True)
             rval = func(*args, **kwargs)
-            print('done')
+            print("done")
             return rval
+
         return announce_wrapper
+
     return decorator_announce
 
 
@@ -34,21 +37,23 @@ def csv_cached_property(csvname: str, save_index: bool = False):
                 index_col = 0
             else:
                 index_col = None
-            if not os.path.exists(filename) or config.get('rerun'):
+            if not os.path.exists(filename) or config.get("rerun"):
                 csv = func(self, *args, **kwargs)
                 csv.to_csv(filename, index=save_index)
             return pd.read_csv(filename, index_col=index_col)
+
         return wrapper
+
     return decorator_csv
 
 
 def expand_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
     books = [codebook]
-    bits = len(codebook.filter(like='bit').columns)
-    for bit in range(1, bits+1):
+    bits = len(codebook.filter(like="bit").columns)
+    for bit in range(1, bits + 1):
         flip = codebook.copy()
-        flip[f'bit{bit}'] = (~flip[f'bit{bit}'].astype(bool)).astype(int)
-        flip['id'] = flip['id'] + f'_flip{bit}'
+        flip[f"bit{bit}"] = (~flip[f"bit{bit}"].astype(bool)).astype(int)
+        flip["id"] = flip["id"] + f"_flip{bit}"
         books.append(flip)
     return pd.concat(books)
 

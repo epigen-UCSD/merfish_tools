@@ -27,7 +27,9 @@ def find_fov_overlaps(positions):
     fovsize = 220
     nn = NearestNeighbors()
     nn = nn.fit(positions)
-    res = nn.radius_neighbors(positions, radius=fovsize, return_distance=True, sort_results=True)
+    res = nn.radius_neighbors(
+        positions, radius=fovsize, return_distance=True, sort_results=True
+    )
     overlaps = []
     pairs = set()
     for i, (dists, fovs) in enumerate(zip(*res)):
@@ -38,8 +40,12 @@ def find_fov_overlaps(positions):
                 continue
             pairs.update([(i, fov), (fov, i)])
             diff = positions.loc[i] - positions.loc[fov]
-            overlaps.append([(i, get_slice(diff[0]), get_slice(-diff[1])),
-                             (fov, get_slice(-diff[0]), get_slice(diff[1]))])
+            overlaps.append(
+                [
+                    (i, get_slice(diff[0]), get_slice(-diff[1])),
+                    (fov, get_slice(-diff[0]), get_slice(diff[1])),
+                ]
+            )
     return overlaps
 
 
@@ -62,9 +68,11 @@ def get_overcounts(overlaps, masks, celldata):
         coords[a[0]].update(get_coords_in_slice(a[1], a[2]))
         coords[b[0]].update(get_coords_in_slice(b[1], b[2]))
 
-    cells = set(celldata[celldata['cell_id'].duplicated()]['cell_id'])
+    cells = set(celldata[celldata["cell_id"].duplicated()]["cell_id"])
     dfs = []
-    for fov, pointset in tqdm(coords.items(), desc="Getting cell volumes inside overlaps"):
+    for fov, pointset in tqdm(
+        coords.items(), desc="Getting cell volumes inside overlaps"
+    ):
         times = defaultdict(list)
         for point, occurrences in Counter(pointset).items():
             times[occurrences].append(point)
@@ -73,32 +81,45 @@ def get_overcounts(overlaps, masks, celldata):
             xinds = [p[0] for p in points]
             yinds = [p[1] for p in points]
             unique, counts = np.unique(masks[fov][xinds, yinds], return_counts=True)
-            df = pd.DataFrame(zip(itertools.repeat(fov), unique, counts), columns=["fov", "cell_id", "volume"])
-            df = df[df['cell_id'].isin(cells)].set_index('cell_id')
-            df['volume'] /= occurrences + 1
+            df = pd.DataFrame(
+                zip(itertools.repeat(fov), unique, counts),
+                columns=["fov", "cell_id", "volume"],
+            )
+            df = df[df["cell_id"].isin(cells)].set_index("cell_id")
+            df["volume"] /= occurrences + 1
             if volumes is None:
                 volumes = df
             else:
-                volumes['volume'] = volumes['volume'].add(df['volume'], fill_value=0)
+                volumes["volume"] = volumes["volume"].add(df["volume"], fill_value=0)
         if volumes is not None:
             dfs.append(volumes.reset_index())
     return pd.concat(dfs)
 
 
 def add_total_volume(celldata, overcounts):
-    res = celldata.groupby('cell_id')['volume'].sum().subtract(overcounts.groupby('cell_id')['volume'].sum(), fill_value=0)
-    return pd.merge(celldata, res, left_on='cell_id', right_on='cell_id', suffixes=('_fov', ''))
+    res = (
+        celldata.groupby("cell_id")["volume"]
+        .sum()
+        .subtract(overcounts.groupby("cell_id")["volume"].sum(), fill_value=0)
+    )
+    return pd.merge(
+        celldata, res, left_on="cell_id", right_on="cell_id", suffixes=("_fov", "")
+    )
 
 
 def filter_by_volume(celldata, min_volume, max_factor):
     # Remove small cells
-    celldata.loc[celldata['volume'] < min_volume, 'status'] = 'Too small'
-    print(f"Tagged {len(celldata[celldata['status'] == 'Too small'])} cells with volume < {min_volume} pixels")
+    celldata.loc[celldata["volume"] < min_volume, "status"] = "Too small"
+    print(
+        f"Tagged {len(celldata[celldata['status'] == 'Too small'])} cells with volume < {min_volume} pixels"
+    )
 
     # Remove large cells
-    median = np.median(celldata[celldata['status'] != 'Too small']['volume'])
-    celldata.loc[celldata['volume'] > median * max_factor, 'status'] = 'Too big'
-    print(f"Tagged {len(celldata[celldata['status'] == 'Too big'])} cells with volume > {median*max_factor} pixels")
+    median = np.median(celldata[celldata["status"] != "Too small"]["volume"])
+    celldata.loc[celldata["volume"] > median * max_factor, "status"] = "Too big"
+    print(
+        f"Tagged {len(celldata[celldata['status'] == 'Too big'])} cells with volume > {median*max_factor} pixels"
+    )
 
     return celldata
 
@@ -107,26 +128,28 @@ def get_global_cell_positions(celldata, positions):
     gxs = []
     gys = []
     for _, cell in celldata.iterrows():
-        gxs.append(220 * (2048-cell['fov_y']) / 2048 + positions.loc[int(cell['fov'])]['x'])
-        gys.append(220 * cell['fov_x'] / 2048 + positions.loc[int(cell['fov'])]['y'])
+        gxs.append(
+            220 * (2048 - cell["fov_y"]) / 2048 + positions.loc[int(cell["fov"])]["x"]
+        )
+        gys.append(220 * cell["fov_x"] / 2048 + positions.loc[int(cell["fov"])]["y"])
     gxs = [-x for x in gxs]
-    celldata['global_x'] = gxs
-    celldata['global_y'] = gys
-    global_celldata = celldata.groupby('cell_id')[['global_x', 'global_y']].mean()
+    celldata["global_x"] = gxs
+    celldata["global_y"] = gys
+    global_celldata = celldata.groupby("cell_id")[["global_x", "global_y"]].mean()
     return global_celldata
 
 
 def save_cell_links(links, filename):
-    with open(filename, 'w') as f:
+    with open(filename, "w") as f:
         for link in links:
-            print(','.join([str(cell) for cell in link]), file=f)
+            print(",".join([str(cell) for cell in link]), file=f)
 
 
 def load_cell_links(filename):
     links = []
     with open(filename) as f:
         for line in f:
-            links.append(set(int(cell) for cell in line.split(',')))
+            links.append(set(int(cell) for cell in line.split(",")))
     return links
 
 
@@ -138,7 +161,12 @@ class MaskList:
         self._fov_renamed = False
         self._link_renamed = False
         if files is None:
-            self.files = {fov:os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png") for fov in mfx.fovs}
+            self.files = {
+                fov: os.path.join(
+                    segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
+                )
+                for fov in mfx.fovs
+            }
         if masks is None:
             self._masks = {}
 
@@ -157,7 +185,7 @@ class MaskList:
     @cached_property
     def links(self):
         cell_link_file = config.path("cell_links.csv")
-        if os.path.exists(cell_link_file) and not config.get('rerun'):
+        if os.path.exists(cell_link_file) and not config.get("rerun"):
             print("Loading existing cell links")
             links = load_cell_links(cell_link_file)
         else:
@@ -185,7 +213,13 @@ class MaskList:
             mask_b = self[b[0]]
             strip_a = mask_a[a[1], a[2]]
             strip_b = mask_b[b[1], b[2]]
-            df = pd.DataFrame([x for x in list(zip(strip_a.flatten(), strip_b.flatten())) if x[0] > 0 and x[1] > 0])
+            df = pd.DataFrame(
+                [
+                    x
+                    for x in list(zip(strip_a.flatten(), strip_b.flatten()))
+                    if x[0] > 0 and x[1] > 0
+                ]
+            )
             if df.empty:
                 continue
             ctab = pd.crosstab(df[0], df[1])
@@ -228,7 +262,9 @@ class MaskList:
             mask = self[fov]
             unique, counts = np.unique(mask, return_counts=True)
             if exclude_edge:
-                edge = np.unique(np.concatenate([mask[:, 0], mask[:, -1], mask[0, :], mask[-1, :]]))
+                edge = np.unique(
+                    np.concatenate([mask[:, 0], mask[:, -1], mask[0, :], mask[-1, :]])
+                )
             else:
                 edge = set()
             for cell_id, volume in zip(unique, counts):
@@ -236,9 +272,20 @@ class MaskList:
                     continue
                 fov_y, fov_x = np.median(np.where(mask == cell_id), axis=1)
                 rows.append([cell_id, fov, fov_y, fov_x, volume])
-        celldata = pd.DataFrame(rows, columns=['cell_id', 'fov', 'fov_y', 'fov_x', 'fov_volume'])
+        celldata = pd.DataFrame(
+            rows, columns=["cell_id", "fov", "fov_y", "fov_x", "fov_volume"]
+        )
         if use_overlaps:
             overcounts = get_overcounts(self.overlaps, self, celldata)
-            res = celldata.groupby('cell_id')['fov_volume'].sum().subtract(overcounts.groupby('cell_id')['volume'].sum(), fill_value=0)
-            celldata = pd.merge(celldata, pd.DataFrame(res, columns=["volume"]).astype(np.uint16), left_on='cell_id', right_index=True)
+            res = (
+                celldata.groupby("cell_id")["fov_volume"]
+                .sum()
+                .subtract(overcounts.groupby("cell_id")["volume"].sum(), fill_value=0)
+            )
+            celldata = pd.merge(
+                celldata,
+                pd.DataFrame(res, columns=["volume"]).astype(np.uint16),
+                left_on="cell_id",
+                right_index=True,
+            )
         return celldata
