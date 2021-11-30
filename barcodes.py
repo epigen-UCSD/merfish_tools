@@ -17,7 +17,9 @@ class Barcodes:
 
         # While this is fairly time consuming, we do it on construction because most of the methods of
         # this class should be used with assigned barcodes
-        self.assign_barcodes_to_cells(masks=self.mfx.masks, drifts=self.mfx.mask_drifts)
+        self.assign_barcodes_to_cells(
+            masks=self.mfx.masks
+        )  # , drifts=self.mfx.mask_drifts)
 
         self.filter_barcodes()
 
@@ -83,6 +85,16 @@ class Barcodes:
             except IndexError:
                 return masks[fov][clip(y, 0, 2047), clip(x, 0, 2047)]
 
+        def get_cell_id_3d(row):
+            fov = int(row["fov"])
+            x = int(round(row["x"] + xdrift))
+            y = int(round(row["y"] + ydrift))
+            z = int(round(row["z"]))
+            try:
+                return masks[fov][z, y, x]
+            except IndexError:
+                return masks[fov][z, clip(y, 0, 2047), clip(x, 0, 2047)]
+
         masks.link_cells_in_overlaps()
         cellids = []
         for fov, group in tqdm(
@@ -93,5 +105,8 @@ class Barcodes:
                 ydrift = drifts.loc[fov]["Y drift"]
             else:
                 xdrift, ydrift = 0, 0
-            cellids.append(group.apply(get_cell_id, axis=1))
+            if len(masks[0].shape) == 2:
+                cellids.append(group.apply(get_cell_id, axis=1))
+            elif len(masks[0].shape) == 3:
+                cellids.append(group.apply(get_cell_id_3d, axis=1))
         self.barcodes["cell_id"] = pd.concat(cellids)

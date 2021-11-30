@@ -80,7 +80,12 @@ def get_overcounts(overlaps, masks, celldata):
         for occurrences, points in times.items():
             xinds = [p[0] for p in points]
             yinds = [p[1] for p in points]
-            unique, counts = np.unique(masks[fov][xinds, yinds], return_counts=True)
+            if len(masks[fov].shape) == 2:
+                unique, counts = np.unique(masks[fov][xinds, yinds], return_counts=True)
+            elif len(masks[fov].shape) == 3:
+                unique, counts = np.unique(
+                    masks[fov][:, xinds, yinds], return_counts=True
+                )
             df = pd.DataFrame(
                 zip(itertools.repeat(fov), unique, counts),
                 columns=["fov", "cell_id", "volume"],
@@ -163,7 +168,10 @@ class MaskList:
         if files is None:
             self.files = {
                 fov: os.path.join(
-                    segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
+                    segmask_dir,
+                    f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
+                    # segmask_dir,
+                    # f"Fov-{fov:04d}_seg.pkl",
                 )
                 for fov in mfx.fovs
             }
@@ -171,12 +179,27 @@ class MaskList:
             self._masks = {}
 
     def __getitem__(self, fov):
+        def resize(im, shape_=[20, 2048, 2048]):
+            """Given an 3d image <im> this provides a quick way to resize based on nneighbor sampling"""
+            z_int = np.round(np.linspace(0, im.shape[0] - 1, shape_[0])).astype(int)
+            x_int = np.round(np.linspace(0, im.shape[1] - 1, shape_[1])).astype(int)
+            y_int = np.round(np.linspace(0, im.shape[2] - 1, shape_[2])).astype(int)
+            return im[z_int][:, x_int][:, :, y_int]
+
         if fov not in self._masks:
             self._masks[fov] = np.asarray(PIL.Image.open(self.files[fov]))
+            # import pickle
+
+            # pkl = pickle.load(open(self.files[fov], "rb"))
+            # self._masks[fov] = resize(pkl[0].astype(np.uint32), pkl[2])
         return self._masks[fov]
 
     def __len__(self):
         return len(self._masks)
+
+    @property
+    def dimensions(self):
+        return len(self[0].shape)
 
     @cached_property
     def overlaps(self):
@@ -211,8 +234,12 @@ class MaskList:
         for a, b in tqdm(self.overlaps, desc="Linking cells in overlaps"):
             mask_a = self[a[0]]
             mask_b = self[b[0]]
-            strip_a = mask_a[a[1], a[2]]
-            strip_b = mask_b[b[1], b[2]]
+            if self.dimensions == 2:
+                strip_a = mask_a[a[1], a[2]]
+                strip_b = mask_b[b[1], b[2]]
+            elif self.dimensions == 3:
+                strip_a = mask_a[:, a[1], a[2]]
+                strip_b = mask_b[:, b[1], b[2]]
             df = pd.DataFrame(
                 [
                     x
@@ -257,24 +284,35 @@ class MaskList:
         """Create a metadata table for cells."""
         if use_overlaps:
             self.link_cells_in_overlaps()
-        rows = []
+        dfs = []
         for fov in tqdm(self.mfx.fovs, desc="Creating cell metadata table"):
             mask = self[fov]
-            unique, counts = np.unique(mask, return_counts=True)
             if exclude_edge:
+                # TODO: Only works for 2D masks
+                # We don't exlude edges in the standard pipeline, so doesn't matter currently
                 edge = np.unique(
                     np.concatenate([mask[:, 0], mask[:, -1], mask[0, :], mask[-1, :]])
                 )
             else:
                 edge = set()
-            for cell_id, volume in zip(unique, counts):
-                if cell_id == 0 or cell_id in edge:
-                    continue
-                fov_y, fov_x = np.median(np.where(mask == cell_id), axis=1)
-                rows.append([cell_id, fov, fov_y, fov_x, volume])
-        celldata = pd.DataFrame(
-            rows, columns=["cell_id", "fov", "fov_y", "fov_x", "fov_volume"]
-        )
+
+            d = mask.ravel()
+            f = lambda x: np.unravel_index(x.index, mask.shape)
+            inds = pd.Series(d).groupby(d).apply(f).drop(0)
+            pos = inds.apply(lambda x: np.array(x).mean(axis=1))
+            df = pd.DataFrame(pos.values.tolist(), index=pos.index)
+            if len(df) > 0:
+                df.index.name = "cell_id"
+                if self.dimensions == 2:
+                    df.columns = ["fov_y", "fov_x"]
+                elif self.dimensions == 3:
+                    df.columns = ["z", "fov_y", "fov_x"]
+                df["fov"] = fov
+                counts = np.unique(mask, return_counts=True)
+                df["fov_volume"] = pd.Series(counts[1], index=counts[0]).drop(0)
+                dfs.append(df.reset_index())
+
+        celldata = pd.concat(dfs, ignore_index=True)
         if use_overlaps:
             overcounts = get_overcounts(self.overlaps, self, celldata)
             res = (
