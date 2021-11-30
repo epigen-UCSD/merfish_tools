@@ -10,6 +10,7 @@ import typing
 from functools import cached_property
 from matplotlib.pyplot import bar
 
+import faiss
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -100,7 +101,7 @@ class MerfishExperiment:
         """
         rows = []
         folder = os.path.join(
-            self.analysis_folder, "FiducialCorrelationWarp", "transformations"
+            self.analysis_folder, "FiducialBeadWarp", "transformations"
         )
         files = [os.path.join(folder, f"offsets_{fov}.npy") for fov in self.fovs]
         num_colors = len(self.barcode_colors)
@@ -197,21 +198,23 @@ class MerfishExperiment:
         codebook = self.mfx.expanded_codebook
         codes = codebook.filter(like="bit")
         normcodes = codes.apply(lambda row: row / norm(row), axis=1)
-        neighbors = NearestNeighbors(n_neighbors=1, algorithm="ball_tree", n_jobs=16)
-        neighbors.fit(normcodes)
+        X = np.ascontiguousarray(normcodes.to_numpy(), dtype=np.float32)
+        neighbors = faiss.IndexFlatL2(X.shape[1])
+        neighbors.add(X)
         dfs = []
         for fov, barcode_file in tqdm(
-            zip(self.mfx.fovs, self.mfx.filtered_barcode_files),
+            list(zip(self.mfx.fovs, self.mfx.filtered_barcode_files)),
             desc="Preparing barcodes",
         ):
             barcodes = pd.read_hdf(barcode_file)
-            # Get just the intensity columns for convenience
-            intensities = barcodes[[f"intensity_{i}" for i in range(22)]]
 
             # Find nearest
-            distances, indexes = neighbors.kneighbors(intensities, return_distance=True)
+            X = np.ascontiguousarray(
+                barcodes.filter(like="intensity_").to_numpy(), dtype=np.float32
+            )
+            indexes = neighbors.search(X, k=1)
 
-            res = codebook.iloc[indexes.T[0]].copy()
+            res = codebook.iloc[indexes[1].flatten()].copy()
             res["fov"] = fov
             res = res.set_index(["name", "id", "fov"]).filter(like="bit").sum(axis=1)
             res = pd.DataFrame(res, columns=["bits"]).reset_index()
