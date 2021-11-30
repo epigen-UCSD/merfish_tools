@@ -84,14 +84,12 @@ class ScanpyObject:
     def cluster_cells(self):
         print("Calculating neighbors...", end="")
         sc.pp.neighbors(self.scdata, n_pcs=self.number_PCs)
-        print("done\nLouvain clustering...", end="")
-        sc.tl.louvain(self.scdata)
         print("done\nLeiden clustering...", end="")
         sc.tl.leiden(self.scdata)
         print("done\nCalculating UMAP...", end="")
         sc.tl.paga(self.scdata)
         sc.pl.paga(self.scdata, plot=False)
-        sc.tl.umap(self.scdata, init_pos="paga")
+        sc.tl.umap(self.scdata, init_pos="paga", min_dist=0.3, spread=1)
         print("done")
         nclusts = len(np.unique(self.scdata.obs["leiden"]))
         sc.pl.umap(
