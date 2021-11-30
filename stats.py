@@ -311,9 +311,10 @@ def get_per_bit_stats(gene: str, barcodes: pd.DataFrame) -> pd.DataFrame:
     for bit in range(1, 23):
         errors = barcodes[barcodes["error_bit"] == bit]
         k1 = len(errors)
-        err_type = "1->0" if errors.iloc[0]["error_type"] == -1 else "0->1"
-        rate = (k1 / k0) / (1 + (k1 / k0))
-        rows.append([gene, bit, k1, err_type, rate, rate * total, total])
+        if k1 > 0:
+            err_type = "1->0" if errors.iloc[0]["error_type"] == -1 else "0->1"
+            rate = (k1 / k0) / (1 + (k1 / k0))
+            rows.append([gene, bit, k1, err_type, rate, rate * total, total])
     return pd.DataFrame(
         rows,
         columns=[
