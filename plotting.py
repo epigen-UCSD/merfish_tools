@@ -342,3 +342,42 @@ def fov_number_map(mfx):
     plt.axis("off")
     plt.tight_layout()
     plt.savefig(config.path("fov_number_map.png"), dpi=150)
+
+
+def spatial_gene_expression(scdata, gene, use_raw=False, swap_axes=False):
+    if use_raw:
+        counts = scdata.raw[:, gene].X
+        unit = "counts"
+    else:
+        counts = scdata[:, gene].X
+        unit = "z-score"
+    if swap_axes:
+        xs = scdata.obsm["X_spatial"][:, 1]
+        ys = scdata.obsm["X_spatial"][:, 0]
+    else:
+        xs = scdata.obsm["X_spatial"][:, 0]
+        ys = scdata.obsm["X_spatial"][:, 1]
+    data = list(sorted(zip(counts, xs, ys)))
+    scores = [cell[0] for cell in data]
+    x = [cell[1] for cell in data]
+    y = [cell[2] for cell in data]
+
+    plt.figure(figsize=(10, 8), facecolor="black")
+    vmax = np.percentile(scores, 99)
+    plt.scatter(y, x, c=scores, s=2, cmap="coolwarm", vmax=vmax)
+    cb = plt.colorbar(shrink=0.5)
+    cb.ax.set_title(
+        f"{gene}\n{unit}", color="white", fontsize="x-large", fontweight="heavy"
+    )
+    cb.ax.yaxis.set_tick_params(color="black")
+    cb.outline.set_edgecolor("w")
+    plt.setp(
+        plt.getp(cb.ax.axes, "yticklabels"),
+        color="white",
+        fontsize="x-large",
+        fontweight="heavy",
+    )
+    plt.grid(b=None)
+    plt.axis("off")
+    plt.tight_layout()
+    # plt.savefig(f"{gene}.png", dpi=150, facecolor='white')
