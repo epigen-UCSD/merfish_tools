@@ -123,9 +123,10 @@ class Stats:
         """Calculate the stat if not available, then return it."""
         if stat not in self.stats:
             self.stats[stat] = self.functions[stat](self)
-            if not self.unsaved:
-                self.unsaved = True
-                atexit.register(save_stats, stats=self)
+            self.save()
+            # if not self.unsaved:
+            #    self.unsaved = True
+            #    atexit.register(save_stats, stats=self)
         return self.stats[stat]
 
     @csv_cached_property("error_counts_prefiltered.csv")
@@ -275,13 +276,13 @@ class Stats:
         plotting.genes_detected_per_cell_histogram(self.mfx)
         plotting.spatial_cell_clusters(self.mfx)
 
-    @announce("Saving statistics")
+    # @announce("Saving statistics")
     def save(self) -> None:
         text = json.dumps(self.stats, indent=4)
         with open(self.filepath, "w") as f:
             f.write(text)
-        atexit.unregister(save_stats)
-        self.unsaved = False
+        # atexit.unregister(save_stats)
+        # self.unsaved = False
 
 
 def save_stats(stats: Stats) -> None:
