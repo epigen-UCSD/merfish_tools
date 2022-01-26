@@ -250,7 +250,7 @@ class MerfishExperiment:
             .agg({"fov": list, "volume": max})
         )
         global_cell_positions = segmentation.get_global_cell_positions(
-            self.fov_celldata, self.positions
+            self.fov_celldata, self.positions, masksize=config.get("mask_size")
         )
         celldata = celldata.merge(
             right=global_cell_positions, left_index=True, right_index=True

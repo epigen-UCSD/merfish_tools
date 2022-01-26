@@ -1,5 +1,6 @@
 import os
 import glob
+import pickle
 import itertools
 from functools import cached_property
 from collections import defaultdict, Counter
@@ -14,7 +15,7 @@ import config
 
 
 def get_slice(diff):
-    overlap = int(2048 * diff / 220)
+    overlap = int(config.get("mask_size") * diff / 220)
     if overlap == 0:
         return slice(None)
     elif overlap > 0:
@@ -51,7 +52,7 @@ def find_fov_overlaps(positions):
 
 def get_slice_range(sliceobj):
     start = sliceobj.start if sliceobj.start is not None else 0
-    stop = sliceobj.stop if sliceobj.stop is not None else 2048
+    stop = sliceobj.stop if sliceobj.stop is not None else config.get("mask_size")
     return range(start, stop)
 
 
@@ -129,14 +130,17 @@ def filter_by_volume(celldata, min_volume, max_factor):
     return celldata
 
 
-def get_global_cell_positions(celldata, positions):
+def get_global_cell_positions(celldata, positions, masksize):
     gxs = []
     gys = []
     for _, cell in celldata.iterrows():
         gxs.append(
-            220 * (2048 - cell["fov_y"]) / 2048 + positions.loc[int(cell["fov"])]["x"]
+            220 * (masksize - cell["fov_y"]) / masksize
+            + positions.loc[int(cell["fov"])]["x"]
         )
-        gys.append(220 * cell["fov_x"] / 2048 + positions.loc[int(cell["fov"])]["y"])
+        gys.append(
+            220 * cell["fov_x"] / masksize + positions.loc[int(cell["fov"])]["y"]
+        )
     gxs = [-x for x in gxs]
     celldata["global_x"] = gxs
     celldata["global_y"] = gys
@@ -166,32 +170,25 @@ class MaskList:
         self._fov_renamed = False
         self._link_renamed = False
         if files is None:
-            self.files = {
-                fov: os.path.join(
-                    segmask_dir,
-                    f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
-                    # segmask_dir,
-                    # f"Fov-{fov:04d}_seg.pkl",
-                )
-                for fov in mfx.fovs
-            }
+            if glob.glob(os.path.join(segmask_dir, "*.png")):
+                filename = "Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
+            elif glob.glob(os.path.join(segmask_dir, "*.pkl")):
+                filename = "Fov-{fov:04d}_seg.pkl"
+            elif glob.glob(os.path.join(segmask_dir, "*.npy")):
+                filename = "Conv_zscan_H0_F_{fov:03d}.npy"
+            self.files = {fov: filename.format(fov) for fov in mfx.fovs}
         if masks is None:
             self._masks = {}
 
     def __getitem__(self, fov):
-        def resize(im, shape_=[20, 2048, 2048]):
-            """Given an 3d image <im> this provides a quick way to resize based on nneighbor sampling"""
-            z_int = np.round(np.linspace(0, im.shape[0] - 1, shape_[0])).astype(int)
-            x_int = np.round(np.linspace(0, im.shape[1] - 1, shape_[1])).astype(int)
-            y_int = np.round(np.linspace(0, im.shape[2] - 1, shape_[2])).astype(int)
-            return im[z_int][:, x_int][:, :, y_int]
-
         if fov not in self._masks:
-            self._masks[fov] = np.asarray(PIL.Image.open(self.files[fov]))
-            # import pickle
-
-            # pkl = pickle.load(open(self.files[fov], "rb"))
-            # self._masks[fov] = resize(pkl[0].astype(np.uint32), pkl[2])
+            if self.files[fov].endswith(".png"):
+                self._masks[fov] = np.asarray(PIL.Image.open(self.files[fov]))
+            elif self.files[fov].endswith(".pkl"):
+                pkl = pickle.load(open(self.files[fov], "rb"))
+                self._masks[fov] = pkl[0].astype(np.uint32)
+            elif self.files[fov].endswith(".npy"):
+                self._masks[fov] = np.load(self.files[fov]).astype(np.uint32)
         return self._masks[fov]
 
     def __len__(self):
@@ -310,6 +307,7 @@ class MaskList:
                 df["fov"] = fov
                 counts = np.unique(mask, return_counts=True)
                 df["fov_volume"] = pd.Series(counts[1], index=counts[0]).drop(0)
+                #df["fov_volume"] *= 100  # Adjustment for downscaled mask
                 dfs.append(df.reset_index())
 
         celldata = pd.concat(dfs, ignore_index=True)

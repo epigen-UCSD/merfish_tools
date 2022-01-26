@@ -87,13 +87,17 @@ class Barcodes:
 
         def get_cell_id_3d(row):
             fov = int(row["fov"])
-            x = int(round(row["x"] + xdrift))
-            y = int(round(row["y"] + ydrift))
-            z = int(round(row["z"]))
+            # x = int(round(row["x"] + xdrift))
+            # y = int(round(row["y"] + ydrift))
+            # z = int(round(row["z"]))
+            x = int(round((row["x"] + xdrift) / 4))
+            y = int(round((row["y"] + ydrift) / 4))
+            z = int(round((row["z"]) / 6.3333333))
             try:
                 return masks[fov][z, y, x]
             except IndexError:
-                return masks[fov][z, clip(y, 0, 2047), clip(x, 0, 2047)]
+                # return masks[fov][z, clip(y, 0, 2047), clip(x, 0, 2047)]
+                return masks[fov][z, clip(y, 0, 511), clip(x, 0, 511)]
 
         masks.link_cells_in_overlaps()
         cellids = []

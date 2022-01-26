@@ -3,7 +3,7 @@
 import json
 import os
 
-config = {"omit_fovs": []}
+config = {"omit_fovs": [], "reference_counts": [], "mask_size": 2048}
 result_path = None
 
 
