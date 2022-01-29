@@ -176,7 +176,10 @@ class MaskList:
                 filename = "Fov-{fov:04d}_seg.pkl"
             elif glob.glob(os.path.join(segmask_dir, "*.npy")):
                 filename = "Conv_zscan_H0_F_{fov:03d}.npy"
-            self.files = {fov: filename.format(fov) for fov in mfx.fovs}
+            self.files = {
+                fov: os.path.join(segmask_dir, filename.format(fov=fov))
+                for fov in mfx.fovs
+            }
         if masks is None:
             self._masks = {}
 
@@ -307,7 +310,7 @@ class MaskList:
                 df["fov"] = fov
                 counts = np.unique(mask, return_counts=True)
                 df["fov_volume"] = pd.Series(counts[1], index=counts[0]).drop(0)
-                #df["fov_volume"] *= 100  # Adjustment for downscaled mask
+                # df["fov_volume"] *= 100  # Adjustment for downscaled mask
                 dfs.append(df.reset_index())
 
         celldata = pd.concat(dfs, ignore_index=True)
