@@ -73,7 +73,7 @@ class ScanpyObject:
         mvars = []
         for i in tqdm(range(20), desc="Optimizing number of PCs"):
             randomized = self.scdata.to_df().apply(jumble, axis=0)
-            rndata = AnnData(randomized)
+            rndata = AnnData(randomized, dtype=self.scdata.X.dtype)
             sc.tl.pca(rndata, svd_solver="arpack")
             mvars.append(rndata.uns["pca"]["variance"][0])
 
