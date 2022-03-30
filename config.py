@@ -3,7 +3,13 @@
 import json
 import os
 
-config = {"omit_fovs": [], "reference_counts": [], "mask_size": 2048}
+config = {
+    "omit_fovs": [],
+    "reference_counts": [],
+    "mask_size": 2048,
+    "transpose_barcodes": False,
+    "flip_barcodes": False
+}
 result_path = None
 
 

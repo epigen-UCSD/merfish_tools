@@ -224,6 +224,11 @@ class MerfishExperiment:
             testdf["gene"] = res["name"]
             testdf["error_type"] = res["bits"] - 4
             testdf["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0)
+            if config.get("flip_barcodes"):
+                testdf["x"] = 2048 - testdf["x"]
+                testdf["y"] = 2048 - testdf["y"]
+            if config.get("transpose_barcodes"):
+                testdf["x"], testdf["y"] = testdf["y"], testdf["x"]
             dfs.append(testdf)
         return pd.concat(dfs)
 
