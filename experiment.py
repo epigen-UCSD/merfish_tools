@@ -18,6 +18,7 @@ from scipy.linalg import norm
 from sklearn.neighbors import NearestNeighbors
 
 import config
+import fileio
 from stats import Stats
 import segmentation
 from util import expand_codebook, csv_cached_property, calculate_drift
@@ -202,11 +203,8 @@ class MerfishExperiment:
         neighbors = faiss.IndexFlatL2(X.shape[1])
         neighbors.add(X)
         dfs = []
-        for fov, barcode_file in tqdm(
-            list(zip(self.mfx.fovs, self.mfx.filtered_barcode_files)),
-            desc="Preparing barcodes",
-        ):
-            barcodes = pd.read_hdf(barcode_file)
+        for fov in tqdm(self.mfx.fovs, desc="Preparing barcodes"):
+            barcodes = fileio.load_barcodes(self.analysis_folder, fov)
 
             # Find nearest
             X = np.ascontiguousarray(
