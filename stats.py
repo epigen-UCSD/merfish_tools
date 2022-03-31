@@ -10,6 +10,7 @@ import atexit
 import random
 from functools import cached_property
 
+import h5py
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
@@ -300,8 +301,8 @@ def count_unfiltered_barcodes(stats: Stats) -> int:
     """Count the total number of barcodes decoded by MERlin before adaptive filtering."""
     raw_count = 0
     for file in tqdm(stats.mfx.raw_barcode_files, desc="Counting unfiltered barcodes"):
-        barcodes = pd.read_hdf(file)
-        raw_count += len(barcodes)
+        barcodes = h5py.File(file, 'r')
+        raw_count += len(barcodes['barcodes/table'])
     return raw_count
 
 
