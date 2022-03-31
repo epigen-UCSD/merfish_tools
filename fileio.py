@@ -10,47 +10,63 @@ from PIL import Image
 from tqdm import tqdm
 
 
-def load_unfiltered_barcodes(analysis_dir, fov):
-    pass
-
-
-def load_filtered_barcodes(analysis_dir, fov):
+def load_barcodes(analysis_dir: str, fov: int) -> pd.DataFrame:
+    """Return the barcodes for the given FOV as a pandas DataFrame."""
     barcode_file = os.path.join(
         analysis_dir, "AdaptiveFilterBarcodes", "barcodes", f"barcode_data_{fov}.h5"
     )
     return pd.read_hdf(barcode_file)
 
 
-def load_barcodes(analysis_dir, fov):
-    return load_filtered_barcodes(analysis_dir, fov)
+def load_hyb_drifts(analysis_dir: str, fov: int) -> pd.DataFrame:
+    """Get the drifts calculated between hybridization rounds for the given FOV.
+
+    The 'X drift' and 'Y drift' columns indicate the translation required to
+    align coordinates in the FOV and hybridization round to the first hybridization
+    round for that FOV. These drifts are calculated by MERlin.
+    """
+    rows = []
+    filename = os.path.join(
+        analysis_dir, "FiducialBeadWarp", "transformations", f"offsets_{fov}.npy"
+    )
+    drifts = np.load(filename, allow_pickle=True)
+    for bit, drift in enumerate(drifts, start=1):
+        rows.append([fov, bit, drift.params[0][2], drift.params[1][2]])
+    return pd.DataFrame(rows, columns=["FOV", "Bit", "X drift", "Y drift"])
 
 
-def load_masks(segmask_dir: str) -> Dict[int, np.ndarray]:
-    """Load segmentation masks."""
-    maskfiles = glob.glob(os.path.join(segmask_dir, "Conv_zscan_H0_F_*_cp_masks.png"))
-    masks = {}
-    for filename in tqdm(maskfiles, desc="Loading masks"):
-        m = re.search("H0_F_?([0-9]+)_cp_masks.png", filename)
-        # mypy type checking error here because m might be None, but we want to just
-        # crash in that case, so we'll ignore it.
-        fov = int(m.group(1))
-        mask = np.asarray(Image.open(filename))
-        masks[fov] = mask
-    return masks
+def load_codebook(analysis_dir: str) -> pd.DataFrame:
+    """Get the codebook used for this MERFISH experiment.
+
+    The 'name' and 'id' columns are identical, and both contain the name of the
+    gene or blank barcode encoded by that row. The 'bit1' through 'bitN' columns
+    contain the 0s or 1s of the barcode.
+    """
+    return pd.read_csv(glob.glob(os.path.join(analysis_dir, "codebook_*.csv"))[0])
 
 
-def load_masks_bb(segmask_dir: str) -> Dict[int, np.ndarray]:
-    """Load segmentation masks."""
-    maskfiles = glob.glob(os.path.join(segmask_dir, "Fov-*_seg.pkl"))
-    masks = {}
-    for filename in tqdm(maskfiles, desc="Loading masks"):
-        m = re.search("Fov-([0-9]+)_seg.pkl", filename)
-        # mypy type checking error here because m might be None, but we want to just
-        # crash in that case, so we'll ignore it.
-        fov = int(m.group(1))
+def load_fov_positions(analysis_dir: str) -> pd.DataFrame:
+    """Get the global positions of the FOVs.
+
+    The coordinates indicate the top-left corner of the FOV.
+    """
+    df = pd.read_csv(os.path.join(analysis_dir, "positions.csv"), header=None)
+    df.columns = ["x", "y"]
+    return df
+
+
+def load_mask(segmask_dir: str, fov: int) -> np.ndarray:
+    # Detect type of mask
+    # if glob.glob(os.path.join(segmask_dir, "*.png")):
+    #    filename = f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
+    #    return np.asarray(PIL.Image.open(filename))
+    if glob.glob(os.path.join(segmask_dir, "*.pkl")):
+        filename = f"Fov-{fov:04d}_seg.pkl"
         pkl = pickle.load(open(filename, "rb"))
-        masks[fov] = pkl[0]
-    return masks
+        return pkl[0].astype(np.uint32)
+    elif glob.glob(os.path.join(segmask_dir, "*.npy")):
+        filename = f"Conv_zscan_H0_F_{fov:03d}.npy"
+        return np.load(filename).astype(np.uint32)
 
 
 def save_cell_links(links, filename):

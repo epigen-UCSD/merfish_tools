@@ -58,13 +58,13 @@ class MerfishExperiment:
         folder = os.path.join(self.analysis_folder, "Decode", "barcodes")
         return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
 
-    @cached_property
-    def filtered_barcode_files(self) -> typing.List[str]:
-        """Get the list of filtered barcode files produced by MERlin."""
-        folder = os.path.join(
-            self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes"
-        )
-        return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
+    # @cached_property
+    # def filtered_barcode_files(self) -> typing.List[str]:
+    #    """Get the list of filtered barcode files produced by MERlin."""
+    #    folder = os.path.join(
+    #        self.analysis_folder, "AdaptiveFilterBarcodes", "barcodes"
+    #    )
+    #    return [os.path.join(folder, f"barcode_data_{fov}.h5") for fov in self.fovs]
 
     @cached_property
     def data_organization(self) -> pd.DataFrame:
@@ -151,9 +151,7 @@ class MerfishExperiment:
         gene or blank barcode encoded by that row. The 'bit1' through 'bitN' columns
         contain the 0s or 1s of the barcode.
         """
-        return pd.read_csv(
-            glob.glob(os.path.join(self.analysis_folder, "codebook_*.csv"))[0]
-        )
+        return fileio.load_codebook(self.analysis_folder)
 
     @csv_cached_property("expanded_codebook.csv")
     def expanded_codebook(self) -> pd.DataFrame:
@@ -174,10 +172,7 @@ class MerfishExperiment:
 
         The coordinates indicate the top-left corner of the FOV.
         """
-        df = pd.read_csv(
-            os.path.join(self.analysis_folder, "positions.csv"), header=None
-        )
-        df.columns = ["x", "y"]
+        df = fileio.load_fov_positions(self.analysis_folder)
         df = df.reindex(index=self.fovs)  # Drop omitted FOVs
         return df
 
