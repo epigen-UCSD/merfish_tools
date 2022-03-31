@@ -10,12 +10,23 @@ from PIL import Image
 from tqdm import tqdm
 
 
-def load_barcodes(analysis_dir: str, fov: int) -> pd.DataFrame:
+def merlin_barcode_folder(analysis_dir):
+    return os.path.join(analysis_dir, "AdaptiveFilterBarcodes", "barcodes")
+
+
+def load_merlin_barcodes(analysis_dir: str, fov: int) -> pd.DataFrame:
     """Return the barcodes for the given FOV as a pandas DataFrame."""
     barcode_file = os.path.join(
-        analysis_dir, "AdaptiveFilterBarcodes", "barcodes", f"barcode_data_{fov}.h5"
+        merlin_barcode_folder(analysis_dir), f"barcode_data_{fov}.h5"
     )
     return pd.read_hdf(barcode_file)
+
+
+def merlin_barcodes(analysis_dir: str) -> pd.DataFrame:
+    for barcode_file in glob.glob(
+        os.path.join(merlin_barcode_folder(analysis_dir), "barcode_data_*.h5")
+    ):
+        yield pd.read_hdf(barcode_file)
 
 
 def load_hyb_drifts(analysis_dir: str, fov: int) -> pd.DataFrame:

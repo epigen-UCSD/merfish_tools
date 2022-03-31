@@ -1,9 +1,74 @@
 from functools import cached_property
-import os
 
+import faiss
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from scipy.linalg import norm
+
+import fileio
+
+
+def process_merlin_barcodes(
+    barcodes: pd.DataFrame,
+    neighbors: faiss.IndexFlatL2,
+    expanded_codebook: pd.DataFrame,
+) -> pd.DataFrame:
+    """Process the barcodes for a single field of view.
+
+    The error type and bit are determined using an expanded codebook and returned as a
+    DataFrame with extraneous columns removed.
+    """
+    X = np.ascontiguousarray(
+        barcodes.filter(like="intensity_").to_numpy(), dtype=np.float32
+    )
+    indexes = neighbors.search(X, k=1)
+
+    res = expanded_codebook.iloc[indexes[1].flatten()].copy()
+    res = res.set_index(["name", "id"]).filter(like="bit").sum(axis=1)
+    res = pd.DataFrame(res, columns=["bits"]).reset_index()
+
+    df = barcodes[["barcode_id", "fov", "x", "y", "z"]]
+    df = df.reset_index(drop=True)
+    df["gene"] = res["name"]
+    df["error_type"] = res["bits"] - 4
+    df["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0)
+    return df
+
+
+def expand_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
+    """Add codes for every possible bit flip to a codebook."""
+    books = [codebook]
+    bits = len(codebook.filter(like="bit").columns)
+    for bit in range(1, bits + 1):
+        flip = codebook.copy()
+        flip[f"bit{bit}"] = (~flip[f"bit{bit}"].astype(bool)).astype(int)
+        flip["id"] = flip["id"] + f"_flip{bit}"
+        books.append(flip)
+    return pd.concat(books)
+
+
+def normalize_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
+    """L2 normalize a codebook."""
+    codes = codebook.filter(like="bit")
+    normcodes = codes.apply(lambda row: row / norm(row), axis=1)
+    return normcodes
+
+
+def make_table(analysis_dir: str, codebook: pd.DataFrame) -> pd.DataFrame:
+    """Create a table of all barcodes with error correction information."""
+    codebook = expand_codebook(codebook)
+    X = np.ascontiguousarray(normalize_codebook(codebook).to_numpy(), dtype=np.float32)
+    neighbors = faiss.IndexFlatL2(X.shape[1])
+    neighbors.add(X)
+    dfs = []
+    for barcodes in tqdm(
+        fileio.merlin_barcodes(analysis_dir), desc="Preparing barcodes"
+    ):
+        dfs.append(process_merlin_barcodes(barcodes, neighbors, codebook))
+    df = pd.concat(dfs, ignore_index=True)
+    df["status"] = "Unprocessed"
+    return df
 
 
 class Barcodes:

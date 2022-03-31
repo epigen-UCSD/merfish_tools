@@ -5,15 +5,12 @@ however this module and the MerfishExperiment class are the entry point for usin
 this package in other python scripts by creating and using a MerfishExperiment object.
 """
 import os
-import glob
 import typing
 from functools import cached_property
 
-import faiss
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from scipy.linalg import norm
 
 import config
 import fileio
@@ -21,6 +18,7 @@ from stats import Stats
 import segmentation
 from util import expand_codebook, csv_cached_property, calculate_drift
 from daxfile import DaxFile
+import barcodes
 from barcodes import Barcodes
 from cellgene import ScanpyObject
 
@@ -189,39 +187,13 @@ class MerfishExperiment:
         constructs a new table from the barcode data in AdaptiveFilteredBarcodes. This is
         so the barcodes can be annotated with error correction information.
         """
-        codebook = self.mfx.expanded_codebook
-        codes = codebook.filter(like="bit")
-        normcodes = codes.apply(lambda row: row / norm(row), axis=1)
-        X = np.ascontiguousarray(normcodes.to_numpy(), dtype=np.float32)
-        neighbors = faiss.IndexFlatL2(X.shape[1])
-        neighbors.add(X)
-        dfs = []
-        for fov in tqdm(self.mfx.fovs, desc="Preparing barcodes"):
-            barcodes = fileio.load_barcodes(self.analysis_folder, fov)
-
-            # Find nearest
-            X = np.ascontiguousarray(
-                barcodes.filter(like="intensity_").to_numpy(), dtype=np.float32
-            )
-            indexes = neighbors.search(X, k=1)
-
-            res = codebook.iloc[indexes[1].flatten()].copy()
-            res["fov"] = fov
-            res = res.set_index(["name", "id", "fov"]).filter(like="bit").sum(axis=1)
-            res = pd.DataFrame(res, columns=["bits"]).reset_index()
-
-            testdf = barcodes[["barcode_id", "fov", "x", "y", "z"]]
-            testdf = testdf.reset_index(drop=True)
-            testdf["gene"] = res["name"]
-            testdf["error_type"] = res["bits"] - 4
-            testdf["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0)
-            if config.get("flip_barcodes"):
-                testdf["x"] = 2048 - testdf["x"]
-                testdf["y"] = 2048 - testdf["y"]
-            if config.get("transpose_barcodes"):
-                testdf["x"], testdf["y"] = testdf["y"], testdf["x"]
-            dfs.append(testdf)
-        return pd.concat(dfs)
+        df = barcodes.make_table(self.analysis_folder, self.codebook)
+        if config.get("flip_barcodes"):
+            df["x"] = 2048 - df["x"]
+            df["y"] = 2048 - df["y"]
+        if config.get("transpose_barcodes"):
+            df["x"], df["y"] = df["y"], df["x"]
+        return df
 
     @csv_cached_property("assigned_barcodes.csv")
     def assigned_barcodes(self) -> pd.DataFrame:
