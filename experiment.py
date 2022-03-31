@@ -8,14 +8,12 @@ import os
 import glob
 import typing
 from functools import cached_property
-from matplotlib.pyplot import bar
 
 import faiss
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from scipy.linalg import norm
-from sklearn.neighbors import NearestNeighbors
 
 import config
 import fileio
