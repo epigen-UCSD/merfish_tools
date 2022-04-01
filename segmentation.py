@@ -170,11 +170,11 @@ class MaskList:
         self._fov_renamed = False
         self._link_renamed = False
         if files is None:
-            if glob.glob(os.path.join(segmask_dir, "*.png")):
+            if glob.glob(os.path.join(segmask_dir, "Conv_zscan_*.png")):
                 filename = "Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
-            elif glob.glob(os.path.join(segmask_dir, "*.pkl")):
+            elif glob.glob(os.path.join(segmask_dir, "Fov-*_seg.pkl")):
                 filename = "Fov-{fov:04d}_seg.pkl"
-            elif glob.glob(os.path.join(segmask_dir, "*.npy")):
+            elif glob.glob(os.path.join(segmask_dir, "Conv_zscan_*.npy")):
                 filename = "Conv_zscan_H0_F_{fov:03d}.npy"
             self.files = {
                 fov: os.path.join(segmask_dir, filename.format(fov=fov))
