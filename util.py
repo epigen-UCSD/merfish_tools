@@ -47,17 +47,6 @@ def csv_cached_property(csvname: str, save_index: bool = False):
     return decorator_csv
 
 
-def expand_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
-    books = [codebook]
-    bits = len(codebook.filter(like="bit").columns)
-    for bit in range(1, bits + 1):
-        flip = codebook.copy()
-        flip[f"bit{bit}"] = (~flip[f"bit{bit}"].astype(bool)).astype(int)
-        flip["id"] = flip["id"] + f"_flip{bit}"
-        books.append(flip)
-    return pd.concat(books)
-
-
 def calculate_drift(img1, img2):
     q1 = phase_cross_correlation(img1[:1024, :1024], img2[:1024, :1024])[0]
     q2 = phase_cross_correlation(img1[1024:, :1024], img2[1024:, :1024])[0]

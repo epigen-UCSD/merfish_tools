@@ -16,7 +16,7 @@ import config
 import fileio
 from stats import Stats
 import segmentation
-from util import expand_codebook, csv_cached_property, calculate_drift
+from util import csv_cached_property, calculate_drift
 from daxfile import DaxFile
 import barcodes
 from barcodes import Barcodes
@@ -162,7 +162,7 @@ class MerfishExperiment:
         should be 17 rows with the same 'name': the original barcode and all 16 possible
         single-bit errors, while every row should have a unique 'id'.
         """
-        return expand_codebook(self.codebook)
+        return barcodes.expand_codebook(self.codebook)
 
     @cached_property
     def positions(self) -> pd.DataFrame:
