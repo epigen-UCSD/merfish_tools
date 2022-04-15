@@ -10,26 +10,26 @@ from PIL import Image
 from tqdm import tqdm
 
 
-def merlin_barcode_folder(analysis_dir):
-    return os.path.join(analysis_dir, "AdaptiveFilterBarcodes", "barcodes")
+def merlin_barcode_folder(merlin_dir):
+    return os.path.join(merlin_dir, "AdaptiveFilterBarcodes", "barcodes")
 
 
-def load_merlin_barcodes(analysis_dir: str, fov: int) -> pd.DataFrame:
+def load_merlin_barcodes(merlin_dir: str, fov: int) -> pd.DataFrame:
     """Return the barcodes for the given FOV as a pandas DataFrame."""
     barcode_file = os.path.join(
-        merlin_barcode_folder(analysis_dir), f"barcode_data_{fov}.h5"
+        merlin_barcode_folder(merlin_dir), f"barcode_data_{fov}.h5"
     )
     return pd.read_hdf(barcode_file)
 
 
-def merlin_barcodes(analysis_dir: str) -> pd.DataFrame:
+def merlin_barcodes(merlin_dir: str) -> pd.DataFrame:
     for barcode_file in glob.glob(
-        os.path.join(merlin_barcode_folder(analysis_dir), "barcode_data_*.h5")
+        os.path.join(merlin_barcode_folder(merlin_dir), "barcode_data_*.h5")
     ):
         yield pd.read_hdf(barcode_file)
 
 
-def load_hyb_drifts(analysis_dir: str, fov: int) -> pd.DataFrame:
+def load_hyb_drifts(merlin_dir: str, fov: int) -> pd.DataFrame:
     """Get the drifts calculated between hybridization rounds for the given FOV.
 
     The 'X drift' and 'Y drift' columns indicate the translation required to
@@ -38,7 +38,7 @@ def load_hyb_drifts(analysis_dir: str, fov: int) -> pd.DataFrame:
     """
     rows = []
     filename = os.path.join(
-        analysis_dir, "FiducialBeadWarp", "transformations", f"offsets_{fov}.npy"
+        merlin_dir, "FiducialBeadWarp", "transformations", f"offsets_{fov}.npy"
     )
     drifts = np.load(filename, allow_pickle=True)
     for bit, drift in enumerate(drifts, start=1):
@@ -46,38 +46,46 @@ def load_hyb_drifts(analysis_dir: str, fov: int) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["FOV", "Bit", "X drift", "Y drift"])
 
 
-def load_codebook(analysis_dir: str) -> pd.DataFrame:
+def load_codebook(merlin_dir: str) -> pd.DataFrame:
     """Get the codebook used for this MERFISH experiment.
 
     The 'name' and 'id' columns are identical, and both contain the name of the
     gene or blank barcode encoded by that row. The 'bit1' through 'bitN' columns
     contain the 0s or 1s of the barcode.
     """
-    return pd.read_csv(glob.glob(os.path.join(analysis_dir, "codebook_*.csv"))[0])
+    return pd.read_csv(glob.glob(os.path.join(merlin_dir, "codebook_*.csv"))[0])
 
 
-def load_fov_positions(analysis_dir: str) -> pd.DataFrame:
+def load_fov_positions(merlin_dir: str) -> pd.DataFrame:
     """Get the global positions of the FOVs.
 
     The coordinates indicate the top-left corner of the FOV.
     """
-    df = pd.read_csv(os.path.join(analysis_dir, "positions.csv"), header=None)
+    df = pd.read_csv(os.path.join(merlin_dir, "positions.csv"), header=None)
     df.columns = ["x", "y"]
     return df
 
 
-def load_mask(segmask_dir: str, fov: int) -> np.ndarray:
+def load_mask(segmask_dir: str, fov: int, pad: int = 3) -> np.ndarray:
     # Detect type of mask
-    # if glob.glob(os.path.join(segmask_dir, "*.png")):
-    #    filename = f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
-    #    return np.asarray(PIL.Image.open(filename))
-    if glob.glob(os.path.join(segmask_dir, "*.pkl")):
-        filename = f"Fov-{fov:04d}_seg.pkl"
+    # if glob.glob(os.path.join(segmask_dir, "Conv_zscan*.png")):
+    #    filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png")
+    #    return np.asarray(Image.open(filename))
+    if glob.glob(os.path.join(segmask_dir, "Fov-*.pkl")):
+        filename = os.path.join(segmask_dir, f"Fov-{fov:0{pad}d}_seg.pkl")
         pkl = pickle.load(open(filename, "rb"))
         return pkl[0].astype(np.uint32)
-    elif glob.glob(os.path.join(segmask_dir, "*.npy")):
-        filename = f"Conv_zscan_H0_F_{fov:03d}.npy"
-        return np.load(filename).astype(np.uint32)
+    elif glob.glob(os.path.join(segmask_dir, "Conv_zscan*.npy")):
+        filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:0{pad}d}_seg.npy")
+        return np.load(filename, allow_pickle=True).item()["masks"]
+
+
+def load_all_masks(segmask_dir: str, n_fovs: int):
+    pad = len(str(n_fovs))
+    return [
+        load_mask(segmask_dir, fov, pad)
+        for fov in tqdm(range(n_fovs), desc="Loading masks")
+    ]
 
 
 def save_cell_links(links, filename):
@@ -100,6 +108,14 @@ def save_barcode_table(barcodes, filename):
 
 def load_barcode_table(filename):
     return pd.read_csv(filename)
+
+
+def save_cell_metadata(celldata, filename):
+    celldata.to_csv(filename)
+
+
+def load_cell_metadata(filename):
+    return pd.read_csv(filename, index_col=0)
 
 
 class DaxFile:

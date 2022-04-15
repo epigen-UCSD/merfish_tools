@@ -1,9 +1,11 @@
 import os
 import glob
+import math
 import pickle
 import itertools
-from functools import cached_property
-from collections import defaultdict, Counter
+from functools import cached_property, partial
+from collections import defaultdict, Counter, namedtuple
+from typing import Dict, List, Set
 
 import PIL
 import numpy as np
@@ -13,19 +15,29 @@ from sklearn.neighbors import NearestNeighbors
 
 import config
 
+Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
 
-def get_slice(diff):
-    overlap = int(config.get("mask_size") * diff / 220)
-    if overlap == 0:
+
+def get_slice(diff, scale=1, fovsize=220, get_trim=False):
+    # overlap = int(config.get("mask_size") * diff / 220)
+    if diff == 0:
         return slice(None)
-    elif overlap > 0:
-        return slice(overlap, None)
+    elif diff > 0:
+        if get_trim:
+            diff = fovsize - ((fovsize - diff) / 2)
+        overlap = (2048 * diff / fovsize) / scale
+        return slice(math.trunc(overlap), None)
     else:
-        return slice(None, overlap)
+        if get_trim:
+            diff = -fovsize - ((-fovsize - diff) / 2)
+        overlap = (2048 * diff / fovsize) / scale
+        return slice(None, math.trunc(overlap))
 
 
-def find_fov_overlaps(positions):
-    fovsize = 220
+def find_fov_overlaps(
+    positions: pd.DataFrame, scale: int = 1, fovsize: int = 220, get_trim: bool = False
+) -> List[list]:
+    """Identify overlaps between FOVs."""
     nn = NearestNeighbors()
     nn = nn.fit(positions)
     res = nn.radius_neighbors(
@@ -41,13 +53,123 @@ def find_fov_overlaps(positions):
                 continue
             pairs.update([(i, fov), (fov, i)])
             diff = positions.loc[i] - positions.loc[fov]
+            _get_slice = partial(
+                get_slice, scale=scale, fovsize=fovsize, get_trim=get_trim
+            )
             overlaps.append(
                 [
-                    (i, get_slice(diff[0]), get_slice(-diff[1])),
-                    (fov, get_slice(-diff[0]), get_slice(diff[1])),
+                    Overlap(i, _get_slice(diff[0]), _get_slice(-diff[1])),
+                    Overlap(fov, _get_slice(-diff[0]), _get_slice(diff[1])),
                 ]
             )
     return overlaps
+
+
+def match_cells_in_overlap(strip_a: np.ndarray, strip_b: np.ndarray) -> Set[tuple]:
+    # Pair up pixels in overlap regions
+    # This could be more precise by drift correcting between the two FOVs
+    p = np.array([strip_a.flatten(), strip_b.flatten()]).T
+    # Remove pixel pairs with 0s (no cell) and count overlapping areas between cells
+    ps, c = np.unique(p[np.all(p != 0, axis=1)], axis=0, return_counts=True)
+    # For each cell from A, find the cell in B it overlaps with most (s1)
+    # Do the same from B to A (s2)
+    df = pd.DataFrame(np.hstack((ps, np.array([c]).T)))
+    s1 = {tuple(x) for x in df.groupby(0).max().reset_index()[[0, 1]].values.tolist()}
+    s2 = {tuple(x) for x in df.groupby(1).max().reset_index()[[0, 1]].values.tolist()}
+    # Only keep the pairs found in both directions
+    return s1 & s2
+
+
+def find_overlapping_cells(
+    overlaps: List[list], masks: Dict[int, np.ndarray]
+) -> List[set]:
+    """Find cells in overlapping FOVs that are the same cell."""
+    pairs = set()
+    for a, b in tqdm(overlaps, desc="Linking cells in overlaps"):
+        # Get portions of masks that overlap
+        if len(masks[a.fov].shape) == 2:
+            strip_a = masks[a.fov][a.xslice, a.yslice]
+            strip_b = masks[b.fov][b.xslice, b.yslice]
+        elif len(masks[a.fov].shape) == 3:
+            strip_a = masks[a.fov][:, a.xslice, a.yslice]
+            strip_b = masks[b.fov][:, b.xslice, b.yslice]
+        newpairs = match_cells_in_overlap(strip_a, strip_b)
+        pairs.update({(a.fov * 10000 + x[0], b.fov * 10000 + x[1]) for x in newpairs})
+    linked_sets = [set([a, b]) for a, b in pairs]
+    # Combine sets until they are all disjoint
+    # e.g., if there is a (1, 2) and (2, 3) set, combine to (1, 2, 3)
+    # This is needed for corners where 4 FOVs overlap
+    changed = True
+    while changed:
+        changed = False
+        new: List[set] = []
+        for a in linked_sets:
+            for b in new:
+                if not b.isdisjoint(a):
+                    b.update(a)
+                    changed = True
+                    break
+            else:
+                new.append(a)
+        linked_sets = new
+    return linked_sets
+
+
+def make_metadata_table(masks):
+    def get_centers(inds):
+        return np.mean(np.unravel_index(inds, shape=masks[0].shape), axis=1)
+
+    rows = []
+    for fov, mask in tqdm(
+        list(enumerate(masks)), desc="Getting cell volumes and centers"
+    ):
+        flat = mask.flatten()
+        cells, split_inds, volumes = np.unique(
+            np.sort(flat), return_index=True, return_counts=True
+        )
+        cell_inds = np.split(flat.argsort(), split_inds)[2:]
+        coords = np.stack(list(map(get_centers, cell_inds)), axis=0)
+        df = pd.DataFrame([cells[1:], volumes[1:]] + coords.T.tolist()).T
+        df["fov"] = fov
+        rows.append(df)
+    df = pd.concat(rows)
+    if len(masks[0].shape) == 2:
+        columns = ["fov_cell_id", "fov_volume", "fov_y", "fov_x", "fov"]
+    elif len(masks[0].shape == 3):
+        columns = ["fov_cell_id", "fov_volume", "fov_z", "fov_y", "fov_x", "fov"]
+    df.columns = columns
+    df["cell_id"] = (df["fov"] * 10000 + df["fov_cell_id"]).astype(int).astype(str)
+    df["fov_volume"] = df["fov_volume"].astype(int)
+    df = df.set_index("cell_id")
+    return df
+
+
+def add_overlap_volume(celldata, overlaps, masks):
+    fov_overlaps = defaultdict(list)
+    for a, b in overlaps:
+        fov_overlaps[a.fov].append(a)
+        fov_overlaps[b.fov].append(b)
+    cells = []
+    volumes = []
+    for fov, fov_over in fov_overlaps.items():
+        for overlap in fov_over:
+            counts = np.unique(
+                masks[fov][overlap.xslice, overlap.yslice], return_counts=True
+            )
+            cells.extend(counts[0] + fov * 10000)
+            volumes.extend(counts[1])
+    df = pd.DataFrame(np.array([cells, volumes]).T, columns=["cell", "volume"])
+    celldata["overlap_volume"] = df.groupby("cell").max()
+
+
+def add_linked_volume(celldata, cell_links):
+    celldata["nonoverlap_volume"] = celldata["fov_volume"] - celldata["overlap_volume"]
+    for links in cell_links:
+        group = celldata[celldata.index.isin(links)]
+        celldata.loc[celldata.index.isin(links), "volume"] = (
+            group["overlap_volume"].mean() + group["nonoverlap_volume"].sum()
+        )
+    celldata.loc[celldata["volume"].isna(), "volume"] = celldata["fov_volume"]
 
 
 def get_slice_range(sliceobj):
@@ -171,11 +293,13 @@ class MaskList:
         self._link_renamed = False
         if files is None:
             if glob.glob(os.path.join(segmask_dir, "Conv_zscan_*.png")):
-                filename = "Conv_zscan_H0_F_{fov:03d}_cp_masks.png"
+                filename = "Conv_zscan_H0_F_{fov:04d}_cp_masks.png"
             elif glob.glob(os.path.join(segmask_dir, "Fov-*_seg.pkl")):
                 filename = "Fov-{fov:04d}_seg.pkl"
             elif glob.glob(os.path.join(segmask_dir, "Conv_zscan_*.npy")):
                 filename = "Conv_zscan_H0_F_{fov:03d}.npy"
+            elif glob.glob(os.path.join(segmask_dir, "stack_prestain_*.png")):
+                filename = "stack_prestain_{fov:04d}_cp_masks.png"
             self.files = {
                 fov: os.path.join(segmask_dir, filename.format(fov=fov))
                 for fov in mfx.fovs
