@@ -10,104 +10,53 @@ from tqdm import tqdm
 
 from util import announce
 import config
+import stats
 
 
-class ScanpyObject:
-    def __init__(self, mfx) -> None:
-        self.mfx = mfx
-        self.cmap = [
-            "#e6194B",
-            "#3cb44b",
-            "#ffe119",
-            "#4363d8",
-            "#f58231",
-            "#911eb4",
-            "#42d4f4",
-            "#f032e6",
-            "#bfef45",
-            "#fabed4",
-            "#469990",
-            "#dcbeff",
-            "#9A6324",
-            "#fffac8",
-            "#800000",
-            "#aaffc3",
-            "#808000",
-            "#ffd8b1",
-            "#000075",
-            "#a9a9a9",
-        ]
-        sc.settings.figdir = config.path("")
-        sc.set_figure_params(dpi_save=300, figsize=(5, 5))
+def create_scanpy_object(cellgene, celldata):
+    adata = sc.AnnData(cellgene, dtype=np.int32)
+    adata.obsm["X_spatial"] = np.array(
+        celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
+    )
+    sc.pp.filter_cells(adata, min_genes=3)
+    # self.mfx.update_filtered_celldata("Low genes")
+    sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
+    sc.pp.normalize_total(adata)
+    sc.pp.log1p(adata, base=10)
+    sc.pp.normalize_total(adata)
+    adata.raw = adata
+    sc.pp.scale(adata)
+    return adata
 
-    @cached_property
-    def scdata(self):
-        if not os.path.exists(config.path("scanpy_object.h5ad")) or config.get("rerun"):
-            return self.initialize()
-        else:
-            return sc.read(config.path("scanpy_object.h5ad"))
 
-    @announce("Building scanpy object and normalizing counts")
-    def initialize(self):
-        scdata = sc.AnnData(self.mfx.single_cell_raw_counts)
-        scdata.obsm["X_spatial"] = np.array(
-            self.mfx.celldata[["global_x", "global_y"]].reindex(
-                index=scdata.obs.index.astype(int)
-            )
-        )
-        sc.pp.filter_cells(scdata, min_genes=3)
-        self.mfx.update_filtered_celldata("Low genes")
-        sc.pp.calculate_qc_metrics(scdata, percent_top=None, inplace=True)
-        sc.pp.normalize_total(scdata, target_sum=np.median(scdata.obs["total_counts"]))
-        sc.pp.log1p(scdata)
-        scdata.raw = scdata
-        scdata.X = scdata.to_df().apply(zscore, axis=0).to_numpy()
-        scdata.write(config.path("scanpy_object.h5ad"))
-        return scdata
+def optimize_number_PCs(adata):
+    def jumble(seq):
+        return sample(list(seq), k=len(seq))
 
-    @cached_property
-    def number_PCs(self):
-        def jumble(seq):
-            return sample(list(seq), k=len(seq))
+    mvars = []
+    for i in tqdm(range(20), desc="Optimizing number of PCs"):
+        randomized = adata.to_df().apply(jumble, axis=0)
+        rndata = AnnData(randomized, dtype=adata.X.dtype)
+        sc.tl.pca(rndata, svd_solver="arpack")
+        mvars.append(rndata.uns["pca"]["variance"][0])
 
-        mvars = []
-        for i in tqdm(range(20), desc="Optimizing number of PCs"):
-            randomized = self.scdata.to_df().apply(jumble, axis=0)
-            rndata = AnnData(randomized, dtype=self.scdata.X.dtype)
-            sc.tl.pca(rndata, svd_solver="arpack")
-            mvars.append(rndata.uns["pca"]["variance"][0])
+    cutoff = np.mean(mvars)
+    sc.tl.pca(adata, svd_solver="arpack")
+    n_pcs = int(np.sum(adata.uns["pca"]["variance"] > cutoff))
+    stats.set("Number of PCs", n_pcs)
+    return n_pcs
 
-        cutoff = np.mean(mvars)
-        sc.tl.pca(self.scdata, svd_solver="arpack")
-        return int(np.sum(self.scdata.uns["pca"]["variance"] > cutoff))
 
-    def cluster_cells(self):
-        print("Calculating neighbors...", end="")
-        sc.pp.neighbors(self.scdata, n_pcs=self.number_PCs)
-        print("done\nLeiden clustering...", end="")
-        sc.tl.leiden(self.scdata)
-        print("done\nCalculating UMAP...", end="")
-        sc.tl.paga(self.scdata)
-        sc.pl.paga(self.scdata, plot=False)
-        sc.tl.umap(self.scdata, init_pos="paga", min_dist=0.3, spread=1)
-        print("done")
-        nclusts = len(np.unique(self.scdata.obs["leiden"]))
-        sc.pl.umap(
-            self.scdata,
-            color="leiden",
-            add_outline=True,
-            legend_loc="on data",
-            legend_fontsize=12,
-            legend_fontoutline=2,
-            frameon=False,
-            title=f"{nclusts} clusters of {len(self.scdata):,d} cells",
-            palette=self.cmap,
-            save="_clusters.png",
-        )
-        self.scdata.write(config.path("scanpy_object.h5ad"))
-
-    @cached_property
-    def nclusts(self):
-        if "leiden" not in self.scdata.obs:
-            self.cluster_cells()
-        return len(np.unique(self.scdata.obs["leiden"]))
+def cluster_cells(adata, n_pcs):
+    if "pca" not in adata.uns:
+        sc.tl.pca(adata, svd_solver="arpack")
+    print("Calculating neighbors...", end="")
+    sc.pp.neighbors(adata, n_pcs=n_pcs)
+    print("done\nLeiden clustering...", end="")
+    sc.tl.leiden(adata)
+    print("done\nCalculating UMAP...", end="")
+    sc.tl.paga(adata)
+    sc.pl.paga(adata, plot=False)
+    sc.tl.umap(adata, init_pos="paga", min_dist=0.3, spread=1)
+    print("done")
+    stats.set("Number of clusters", len(np.unique(adata.obs["leiden"])))

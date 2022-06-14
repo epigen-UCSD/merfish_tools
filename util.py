@@ -8,45 +8,6 @@ from skimage.registration import phase_cross_correlation
 
 import config
 
-
-def announce(message: str):
-    """
-    This decorator is for functions that take some time to run, but can't use
-    tqdm to show a progress bar. The message will be printed when the function
-    starts running, then 'done' is printed when it finishes.
-    """
-
-    def decorator_announce(func):
-        def announce_wrapper(*args, **kwargs):
-            print(message + "...", end="", flush=True)
-            rval = func(*args, **kwargs)
-            print("done")
-            return rval
-
-        return announce_wrapper
-
-    return decorator_announce
-
-
-def csv_cached_property(csvname: str, save_index: bool = False):
-    def decorator_csv(func):
-        @cached_property
-        def wrapper(self, *args, **kwargs):
-            filename = config.path(csvname)
-            if save_index:
-                index_col = 0
-            else:
-                index_col = None
-            if not os.path.exists(filename) or config.get("rerun"):
-                csv = func(self, *args, **kwargs)
-                csv.to_csv(filename, index=save_index)
-            return pd.read_csv(filename, index_col=index_col)
-
-        return wrapper
-
-    return decorator_csv
-
-
 def calculate_drift(img1, img2):
     q1 = phase_cross_correlation(img1[:1024, :1024], img2[:1024, :1024])[0]
     q2 = phase_cross_correlation(img1[1024:, :1024], img2[1024:, :1024])[0]
@@ -56,3 +17,15 @@ def calculate_drift(img1, img2):
     if (df.std() > 15).any():
         df = df[(np.abs(zscore(df)) < 1.25).all(axis=1)]
     return df.median()
+
+
+def fov_to_global_coordinates(x, y, fov, positions):
+    global_x = 220 * x / 2048 + np.array(positions.loc[fov]["y"])
+    global_y = 220 * y / 2048 - np.array(positions.loc[fov]["x"])
+    return global_x, global_y
+
+
+def reference_gene_counts(filename: str) -> dict:
+    refcounts = pd.read_csv(filename)
+    refcounts = dict(zip(refcounts["geneName"], np.log10(refcounts["counts"])))
+    return refcounts

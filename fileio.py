@@ -1,6 +1,8 @@
+from operator import index
 import os
 import re
 import glob
+import json
 import pickle
 from typing import Dict
 
@@ -14,19 +16,25 @@ def merlin_barcode_folder(merlin_dir):
     return os.path.join(merlin_dir, "AdaptiveFilterBarcodes", "barcodes")
 
 
-def load_merlin_barcodes(merlin_dir: str, fov: int) -> pd.DataFrame:
-    """Return the barcodes for the given FOV as a pandas DataFrame."""
-    barcode_file = os.path.join(
-        merlin_barcode_folder(merlin_dir), f"barcode_data_{fov}.h5"
+def merlin_raw_barcode_folder(merlin_dir):
+    return os.path.join(merlin_dir, "Decode", "barcodes")
+
+
+def merlin_raw_barcode_files(merlin_dir):
+    return glob.glob(
+        os.path.join(merlin_raw_barcode_folder(merlin_dir), "barcode_data_*.h5")
     )
+
+
+def load_merlin_barcodes(barcode_file: str) -> pd.DataFrame:
+    """Return the barcodes for the given FOV as a pandas DataFrame."""
     return pd.read_hdf(barcode_file)
 
 
-def merlin_barcodes(merlin_dir: str) -> pd.DataFrame:
-    for barcode_file in glob.glob(
+def merlin_barcode_files(merlin_dir: str) -> list:
+    return glob.glob(
         os.path.join(merlin_barcode_folder(merlin_dir), "barcode_data_*.h5")
-    ):
-        yield pd.read_hdf(barcode_file)
+    )
 
 
 def load_hyb_drifts(merlin_dir: str, fov: int) -> pd.DataFrame:
@@ -71,20 +79,25 @@ def load_mask(segmask_dir: str, fov: int, pad: int = 3) -> np.ndarray:
     # if glob.glob(os.path.join(segmask_dir, "Conv_zscan*.png")):
     #    filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png")
     #    return np.asarray(Image.open(filename))
-    if glob.glob(os.path.join(segmask_dir, "Fov-*.pkl")):
-        filename = os.path.join(segmask_dir, f"Fov-{fov:0{pad}d}_seg.pkl")
+
+    filename = os.path.join(segmask_dir, f"Fov-{fov:04d}_seg.pkl")
+    if os.path.exists(filename):
         pkl = pickle.load(open(filename, "rb"))
         return pkl[0].astype(np.uint32)
-    elif glob.glob(os.path.join(segmask_dir, "Conv_zscan*.npy")):
-        filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:0{pad}d}_seg.npy")
+
+    filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:0{pad}d}_seg.npy")
+    if os.path.exists(filename):
         return np.load(filename, allow_pickle=True).item()["masks"]
 
+    raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
-def load_all_masks(segmask_dir: str, n_fovs: int):
-    pad = len(str(n_fovs))
+
+def load_all_masks(segmask_dir: str, n_fovs: int, pad: int = None):
+    if pad is None:
+        pad = len(str(n_fovs))
     return [
         load_mask(segmask_dir, fov, pad)
-        for fov in tqdm(range(n_fovs), desc="Loading masks")
+        for fov in tqdm(range(n_fovs), desc="Loading cell masks")
     ]
 
 
@@ -116,6 +129,16 @@ def save_cell_metadata(celldata, filename):
 
 def load_cell_metadata(filename):
     return pd.read_csv(filename, index_col=0)
+
+
+def save_cell_by_gene_table(cellbygene, filename):
+    cellbygene.to_csv(filename)
+
+
+def save_stats(stats, filename) -> None:
+    text = json.dumps(stats, indent=4)
+    with open(filename, "w") as f:
+        f.write(text)
 
 
 class DaxFile:

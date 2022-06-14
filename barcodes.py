@@ -1,6 +1,7 @@
 from functools import cached_property
 from collections import defaultdict
 
+import h5py
 import faiss
 import numpy as np
 import pandas as pd
@@ -8,6 +9,7 @@ from tqdm import tqdm
 from scipy.linalg import norm
 
 import fileio
+import stats
 import config
 
 
@@ -34,7 +36,7 @@ def process_merlin_barcodes(
     df = df.reset_index(drop=True)
     df["gene"] = res["name"]
     df["error_type"] = res["bits"] - 4
-    df["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0)
+    df["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0).astype(int)
     return df
 
 
@@ -57,6 +59,50 @@ def normalize_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
     return normcodes
 
 
+def set_barcode_stats(merlin_dir, bcs, colors):
+    stats.set("Unfiltered barcode count", count_unfiltered_barcodes(merlin_dir))
+    stats.set("Filtered barcode count", len(bcs))
+    stats.set(
+        "Unfiltered barcodes per FOV",
+        stats.get("Unfiltered barcode count") / stats.get("FOVs"),
+    )
+    stats.set(
+        "Filtered barcodes per FOV",
+        stats.get("Filtered barcode count") / stats.get("FOVs"),
+    )
+    stats.set(
+        "% barcodes kept",
+        stats.get("Filtered barcode count") / stats.get("Unfiltered barcode count"),
+    )
+    stats.set("Exact barcode count", len(bcs[bcs["error_type"] == 0]))
+    stats.set(
+        "Corrected barcode count",
+        stats.get("Filtered barcode count") - stats.get("Exact barcode count"),
+    )
+    stats.set(
+        "% exact barcodes",
+        stats.get("Exact barcode count") / stats.get("Filtered barcode count"),
+    )
+    stats.set(
+        "0->1 error rate",
+        len(bcs[bcs["error_type"] == 1]) / stats.get("Filtered barcode count"),
+    )
+    stats.set(
+        "1->0 error rate",
+        len(bcs[bcs["error_type"] == -1]) / stats.get("Filtered barcode count"),
+    )
+    error = per_bit_error(bcs, colors)
+    stats.set(
+        "Average per-bit 0->1 error rate",
+        error[error["Error type"] == "0->1"]["Error rate"].mean(),
+    )
+    stats.set(
+        "Average per-bit 1->0 error rate",
+        error[error["Error type"] == "1->0"]["Error rate"].mean(),
+    )
+    return error
+
+
 def make_table(merlin_dir: str, codebook: pd.DataFrame) -> pd.DataFrame:
     """Create a table of all barcodes with error correction information."""
     codebook = expand_codebook(codebook)
@@ -64,7 +110,10 @@ def make_table(merlin_dir: str, codebook: pd.DataFrame) -> pd.DataFrame:
     neighbors = faiss.IndexFlatL2(X.shape[1])
     neighbors.add(X)
     dfs = []
-    for barcodes in tqdm(fileio.merlin_barcodes(merlin_dir), desc="Preparing barcodes"):
+    for barcode_file in tqdm(
+        fileio.merlin_barcode_files(merlin_dir), desc="Preparing barcodes"
+    ):
+        barcodes = fileio.load_merlin_barcodes(barcode_file)
         dfs.append(process_merlin_barcodes(barcodes, neighbors, codebook))
     df = pd.concat(dfs, ignore_index=True)
     df["status"] = "unprocessed"
@@ -99,16 +148,23 @@ def assign_to_cells(barcodes, masks, drifts=None):
         else:
             xdrift, ydrift = 0, 0
         x = (
-            round(group["x"] + xdrift)
-            .astype(int)
-            .apply(lambda n: 0 if n < 0 else 2047 if n > 2047 else n)
-        )
+            round(group["x"] + xdrift).apply(
+                lambda n: 0 if n < 0 else 2047 if n > 2047 else n
+            )
+        ) // config.get("scale")
         y = (
-            round(group["y"] + ydrift)
-            .astype(int)
-            .apply(lambda n: 0 if n < 0 else 2047 if n > 2047 else n)
-        )
-        cellids.append(pd.Series(masks[fov][y, x], index=group.index))
+            round(group["y"] + ydrift).apply(
+                lambda n: 0 if n < 0 else 2047 if n > 2047 else n
+            )
+        ) // config.get("scale")
+        x = x.astype(int)
+        y = y.astype(int)
+        if len(masks[fov].shape) == 3:
+            # TODO: Remove hard-coding of scale
+            z = round(group["z"] / 6.333333).astype(int)
+            cellids.append(pd.Series(masks[fov][z, y, x], index=group.index))
+        else:
+            cellids.append(pd.Series(masks[fov][y, x], index=group.index))
     barcodes["cell_id"] = pd.concat(cellids)
     barcodes.loc[barcodes["cell_id"] != 0, "cell_id"] = (
         barcodes["fov"].astype(int) * 10000 + barcodes["cell_id"]
@@ -119,6 +175,12 @@ def assign_to_cells(barcodes, masks, drifts=None):
     barcodes.loc[
         (barcodes["cell_id"] != 0) & (barcodes["status"] == "unprocessed"), "status"
     ] = "good"
+    stats.set("Barcodes assigned to cells", len(barcodes[barcodes["status"] == "good"]))
+    stats.set(
+        "% barcodes assigned to cells",
+        stats.get("Barcodes assigned to cells")
+        / len(barcodes[barcodes["status"] != "edge"]),
+    )
 
 
 def link_cell_ids(barcodes, cell_links):
@@ -126,13 +188,11 @@ def link_cell_ids(barcodes, cell_links):
     barcodes["cell_id"] = barcodes["cell_id"].apply(
         lambda cid: link_map[cid] if cid in link_map else cid
     )
-
-
-def mark_barcodes_on_margins(barcodes, left=0, right=0, top=0, bottom=0):
-    barcodes.loc[barcodes["x"] < left, "status"] = "edge"
-    barcodes.loc[barcodes["y"] < top, "status"] = "edge"
-    barcodes.loc[barcodes["x"] > 2048 - right, "status"] = "edge"
-    barcodes.loc[barcodes["y"] > 2048 - bottom, "status"] = "edge"
+    stats.set("Cells with barcodes", len(np.unique(barcodes["cell_id"])))
+    stats.set(
+        "% cells with barcodes",
+        stats.get("Cells with barcodes") / stats.get("Segmented cells"),
+    )
 
 
 def mark_barcodes_in_overlaps(barcodes, trim_overlaps):
@@ -152,19 +212,27 @@ def mark_barcodes_in_overlaps(barcodes, trim_overlaps):
                 ystops[2048 + overlap.yslice.stop].append(overlap.fov)
     for xstart, fovs in xstarts.items():
         barcodes.loc[
-            (barcodes["fov"].isin(fovs)) & (barcodes["x"] > xstart), "status"
+            (barcodes["fov"].isin(fovs))
+            & (barcodes["x"] // config.get("scale") > xstart),
+            "status",
         ] = "edge"
     for ystart, fovs in ystarts.items():
         barcodes.loc[
-            (barcodes["fov"].isin(fovs)) & (barcodes["y"] > ystart), "status"
+            (barcodes["fov"].isin(fovs))
+            & (barcodes["y"] // config.get("scale") > ystart),
+            "status",
         ] = "edge"
     for xstop, fovs in xstops.items():
         barcodes.loc[
-            (barcodes["fov"].isin(fovs)) & (barcodes["x"] < xstop), "status"
+            (barcodes["fov"].isin(fovs))
+            & (barcodes["x"] // config.get("scale") < xstop),
+            "status",
         ] = "edge"
     for ystop, fovs in ystops.items():
         barcodes.loc[
-            (barcodes["fov"].isin(fovs)) & (barcodes["y"] < ystop), "status"
+            (barcodes["fov"].isin(fovs))
+            & (barcodes["y"] // config.get("scale") < ystop),
+            "status",
         ] = "edge"
 
 
@@ -175,107 +243,88 @@ def create_cell_by_gene_table(barcodes) -> pd.DataFrame:
     # Drop blank barcodes
     drop_cols = [col for col in ctable.columns if "notarget" in col or "blank" in col]
     ctable = ctable.drop(columns=drop_cols)
+    stats.set("Median transcripts per cell", np.median(ctable.apply(np.sum, axis=1)))
+    stats.set(
+        "Median genes detected per cell", np.median(ctable.astype(bool).sum(axis=1))
+    )
     return ctable
 
 
-def assign_to_cells_old(barcodes, masks, drifts=None):
-    def clip(x, l, u):
-        return l if x < l else u if x > u else x
-
-    def get_cell_id(row):
-        fov = int(row["fov"])
-        x = int(round(row["x"] + xdrift))
-        y = int(round(row["y"] + ydrift))
-        try:
-            return masks[fov][y, x]
-        except IndexError:
-            return masks[fov][clip(y, 0, 2047), clip(x, 0, 2047)]
-
-    def get_cell_id_3d(row):
-        fov = int(row["fov"])
-        # x = int(round(row["x"] + xdrift))
-        # y = int(round(row["y"] + ydrift))
-        # z = int(round(row["z"]))
-        # x = int(round((row["x"] + xdrift) / 4))
-        # y = int(round((row["y"] + ydrift) / 4))
-        # z = int(round((row["z"]) / 6.3333333))
-        x = int(round((row["x"] + xdrift) / 2))
-        y = int(round((row["y"] + ydrift) / 2))
-        z = int(round((row["z"]) / 2))
-        try:
-            return masks[fov][z, y, x]
-        except IndexError:
-            # return masks[fov][z, clip(y, 0, 2047), clip(x, 0, 2047)]
-            return masks[fov][
-                clip(z, 0, masks[0].shape[0] - 1),
-                clip(y, 0, masks[0].shape[1] - 1),
-                clip(x, 0, masks[0].shape[2] - 1),
-            ]
-
-    masks.link_cells_in_overlaps()
-    cellids = []
-    for fov, group in tqdm(barcodes.groupby("fov"), desc="Assigning barcodes to cells"):
-        if drifts is not None:
-            xdrift = drifts.loc[fov]["X drift"]
-            ydrift = drifts.loc[fov]["Y drift"]
-        else:
-            xdrift, ydrift = 0, 0
-        if len(masks[0].shape) == 2:
-            cellids.append(group.apply(get_cell_id, axis=1))
-        elif len(masks[0].shape) == 3:
-            cellids.append(group.apply(get_cell_id_3d, axis=1))
-    barcodes["cell_id"] = pd.concat(cellids)
+def count_unfiltered_barcodes(merlin_dir: str) -> int:
+    """Count the total number of barcodes decoded by MERlin before adaptive filtering."""
+    raw_count = 0
+    for file in tqdm(
+        fileio.merlin_raw_barcode_files(merlin_dir), desc="Counting unfiltered barcodes"
+    ):
+        barcodes = h5py.File(file, "r")
+        raw_count += len(barcodes["barcodes/table"])
+    return raw_count
 
 
-class Barcodes:
-    def __init__(self, mfx):
-        self.mfx = mfx
-        self.barcodes = mfx.unassigned_barcodes.copy()
-        self.barcodes["status"] = "good"
+def get_per_bit_stats(gene: str, barcodes: pd.DataFrame) -> pd.DataFrame:
+    k0 = len(barcodes[barcodes["error_type"] == 0])
+    total = len(barcodes)
+    rows = []
+    for bit in range(1, 23):
+        errors = barcodes[barcodes["error_bit"] == bit]
+        k1 = len(errors)
+        if k1 > 0 and k0 > 0:
+            err_type = "1->0" if errors.iloc[0]["error_type"] == -1 else "0->1"
+            rate = (k1 / k0) / (1 + (k1 / k0))
+            rows.append([gene, bit, k1, err_type, rate, rate * total, total])
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "gene",
+            "Bit",
+            "count",
+            "Error type",
+            "Error rate",
+            "weighted",
+            "total",
+        ],
+    ).reset_index()
 
-        # TODO: Automatically determine trim margin parameters
-        self.trim_barcodes_on_margins(left=99, right=99, top=99, bottom=99)
 
-        # While this is fairly time consuming, we do it on construction because most of the methods of
-        # this class should be used with assigned barcodes
-        assign_to_cells(
-            self.barcodes, masks=self.mfx.masks
-        )  # , drifts=self.mfx.mask_drifts)
+def per_gene_error(barcodes) -> pd.DataFrame:
+    """Get barcode error statistics per gene."""
+    error = (
+        barcodes.groupby(["gene", "error_type"])
+        .count()
+        .reset_index()
+        .pivot(index="gene", columns="error_type", values="barcode_id")
+    )
+    error.columns = ["1->0 errors", "Exact barcodes", "0->1 errors"]
+    error["Total barcodes"] = (
+        error["1->0 errors"] + error["0->1 errors"] + error["Exact barcodes"]
+    )
+    error["% exact barcodes"] = error["Exact barcodes"] / error["Total barcodes"]
+    return error
 
-        self.filter_barcodes()
 
-        calculate_global_coordinates(self.barcodes, self.mfx.positions)
+def per_bit_error(barcodes, colors) -> pd.DataFrame:
+    """Get barcode error statistics per bit."""
+    error = pd.concat(
+        get_per_bit_stats(gene, group) for gene, group in barcodes.groupby("gene")
+    )
+    error["Color"] = error.apply(
+        lambda row: colors[(row["Bit"] - 1) % len(colors)], axis=1
+    )
+    error["Hybridization round"] = error.apply(
+        lambda row: (row["Bit"] - 1) // len(colors) + 1, axis=1
+    )
+    return error
 
-    def __len__(self):
-        return len(self.barcodes)
 
-    @cached_property
-    def in_cells(self):
-        return len(self.barcodes[self.barcodes["cell_id"] != 0])
-
-    def filter_barcodes(self):
-        self.barcodes.loc[
-            ~self.barcodes["cell_id"].isin(
-                self.mfx.celldata[self.mfx.celldata["status"] == "ok"].index
-            ),
-            "status",
-        ] = "bad cell"
-        self.barcodes.loc[self.barcodes["cell_id"] == 0, "status"] = "no cell"
-
-    @cached_property
-    def cell_count(self):
-        return len(
-            np.unique(
-                self.barcodes[
-                    self.barcodes["cell_id"].isin(
-                        self.mfx.celldata[self.mfx.celldata["status"] == "ok"].index
-                    )
-                ]["cell_id"]
-            )
-        )
-
-    def trim_barcodes_on_margins(self, left=0, right=0, top=0, bottom=0):
-        self.barcodes.loc[self.barcodes["x"] < left, "status"] = "edge"
-        self.barcodes.loc[self.barcodes["y"] < top, "status"] = "edge"
-        self.barcodes.loc[self.barcodes["x"] > 2048 - right, "status"] = "edge"
-        self.barcodes.loc[self.barcodes["y"] > 2048 - bottom, "status"] = "edge"
+def per_fov_error(barcodes) -> pd.DataFrame:
+    """Get barcode error statistics per FOV."""
+    error = (
+        barcodes.groupby(["fov", "error_type"]).count()["gene"]
+        / barcodes.groupby("fov").count()["gene"]
+    )
+    error = error.reset_index()
+    error.columns = ["FOV", "Error type", "Error rate"]
+    error["Error type"] = error["Error type"].replace(
+        [0, -1, 1], ["Correct", "1->0", "0->1"]
+    )
+    return error

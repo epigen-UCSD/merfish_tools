@@ -1,16 +1,32 @@
-import os
-
 import seaborn as sns
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import scanpy as sc
 from scipy.stats import zscore, pearsonr
 from matplotlib.ticker import FuncFormatter
 
 import config
-
+import stats
+import util
 
 pctformatter = FuncFormatter(lambda x, pos: f"{x*100:.1f}%")
+
+
+def plot(save: str, figsize=None, style: str = "default"):
+    def decorator_plot(func):
+        def plot_wrapper(*args, **kwargs):
+            print(f"Creating plot {save}")
+            plt.style.use(style)
+            plt.figure(figsize=figsize)
+            rval = func(*args, **kwargs)
+            plt.tight_layout()
+            plt.savefig(config.path(save), dpi=300)
+            return rval
+
+        return plot_wrapper
+
+    return decorator_plot
 
 
 def drift_histogram(mfx) -> None:
@@ -34,37 +50,33 @@ def drift_histogram(mfx) -> None:
     plt.savefig(config.path("drift_histogram.png"), dpi=300)
 
 
-def exact_vs_corrected(mfx: "MerfishExperiment") -> None:
-    exact = mfx.stats["Exact barcode count"] / 1_000_000
-    corrected = mfx.stats["Corrected barcode count"] / 1_000_000
-    plt.figure()
+@plot(save="exact_vs_corrected.png")
+def exact_vs_corrected() -> None:
+    exact = stats.get("Exact barcode count") / 1_000_000
+    corrected = stats.get("Corrected barcode count") / 1_000_000
     plt.bar([0, 1], [exact, corrected])
     plt.xticks([0, 1], ["Exact", "Corrected"])
     plt.ylabel("Counts (x10^6)")
     plt.text(
-        0, exact, f"{mfx.stats['% exact barcodes']*100:0.0f}%", ha="center", va="bottom"
+        0, exact, f"{stats.get('% exact barcodes')*100:0.0f}%", ha="center", va="bottom"
     )
     plt.text(
         1,
         corrected,
-        f"{(mfx.stats['0->1 error rate'] + mfx.stats['1->0 error rate'])*100:0.0f}%",
+        f"{(stats.get('0->1 error rate') + stats.get('1->0 error rate'))*100:0.0f}%",
         ha="center",
         va="bottom",
     )
     plt.grid(b=False)
-    plt.tight_layout()
-    plt.savefig(config.path("exact_vs_corrected.png"), dpi=300)
 
 
-def confidence_ratios(mfx: "MerfishExperiment") -> None:
-    gene_stats = mfx.stats.per_gene_error.sort_values(
-        by="% exact barcodes", ascending=False
-    )
+@plot(save="confidence_ratio.png")
+def confidence_ratios(per_gene_error) -> None:
+    gene_stats = per_gene_error.sort_values(by="% exact barcodes", ascending=False)
     colors = [
         "steelblue" if "blank" not in name and "notarget" not in name else "firebrick"
         for name in gene_stats.index
     ]
-    plt.figure()
     plt.bar(
         range(1, len(gene_stats) + 1),
         gene_stats["% exact barcodes"],
@@ -81,25 +93,21 @@ def confidence_ratios(mfx: "MerfishExperiment") -> None:
     plt.xlabel("Rank")
     plt.ylabel("Confidence ratio")
     plt.grid(b=False)
-    plt.tight_layout()
-    plt.savefig(config.path("confidence_ratio.png"), dpi=300)
 
 
-def per_bit_error_bar(mfx: "MerfishExperiment") -> None:
-    data = mfx.stats.per_bit_error
-
+def per_bit_error_bar(per_bit_error, colors) -> None:
     ax = sns.catplot(
         x="Hybridization round",
         y="Error rate",
         row="Error type",
-        data=data,
+        data=per_bit_error,
         kind="bar",
         height=2,
         aspect=3,
         capsize=0.2,
         hue="Color",
-        order=sorted(data["Hybridization round"].unique()),
-        hue_order=mfx.barcode_colors,
+        order=sorted(per_bit_error["Hybridization round"].unique()),
+        hue_order=colors,
         sharex=False,
         sharey=False,
     )
@@ -109,22 +117,20 @@ def per_bit_error_bar(mfx: "MerfishExperiment") -> None:
     ax.savefig(config.path("bit_error_bar.png"), dpi=300)
 
 
-def per_bit_error_line(mfx: "MerfishExperiment") -> None:
-    data = mfx.stats.per_bit_error
-
+def per_bit_error_line(per_bit_error, colors) -> None:
     ax = sns.catplot(
         x="Hybridization round",
         y="Error rate",
         row="Error type",
-        data=data,
+        data=per_bit_error,
         kind="point",
         height=2,
         aspect=3,
         ci=None,
         capsize=0.2,
         hue="Color",
-        order=sorted(data["Hybridization round"].unique()),
-        hue_order=mfx.barcode_colors,
+        order=sorted(per_bit_error["Hybridization round"].unique()),
+        hue_order=colors,
         sharey=False,
         sharex=False,
     )
@@ -134,11 +140,9 @@ def per_bit_error_line(mfx: "MerfishExperiment") -> None:
     ax.savefig(config.path("bit_error_line.png"), dpi=300)
 
 
-def per_hyb_error(mfx: "MerfishExperiment") -> None:
-    data = mfx.stats.per_bit_error
-
+def per_hyb_error(per_bit_error) -> None:
     g = sns.FacetGrid(
-        data, row="Error type", height=2, aspect=3, sharey=False, sharex=False
+        per_bit_error, row="Error type", height=2, aspect=3, sharey=False, sharex=False
     )
     g.map_dataframe(sns.barplot, x="Hybridization round", y="Error rate", ci=None)
     g.map_dataframe(
@@ -158,19 +162,17 @@ def per_hyb_error(mfx: "MerfishExperiment") -> None:
     g.savefig(config.path("hyb_error.png"), dpi=300)
 
 
-def per_color_error(mfx: "MerfishExperiment") -> None:
-    data = mfx.stats.per_bit_error
-
+def per_color_error(per_bit_error, colors) -> None:
     ax = sns.catplot(
         x="Color",
         y="Error rate",
         row="Error type",
-        data=data,
+        data=per_bit_error,
         kind="bar",
         height=2,
         aspect=3,
         capsize=0.2,
-        order=mfx.barcode_colors,
+        order=colors,
         sharey=False,
         sharex=False,
     )
@@ -181,7 +183,7 @@ def per_color_error(mfx: "MerfishExperiment") -> None:
     ax.savefig(config.path("color_error.png"), dpi=300)
 
 
-def fov_error_bar(mfx: "MerfishExperiment") -> None:
+def fov_error_bar(per_fov_error) -> None:
     def fovplot(d, ax):
         q1 = d["Error rate"].quantile(0.25)
         q3 = d["Error rate"].quantile(0.75)
@@ -202,12 +204,8 @@ def fov_error_bar(mfx: "MerfishExperiment") -> None:
         ax.set_ylim(bottom=d["Error rate"].min() * 0.75)
 
     fig, ax = plt.subplots(nrows=2, ncols=1, figsize=(10, 5))
-    fovplot(
-        mfx.stats.per_fov_error[mfx.stats.per_fov_error["Error type"] == "1->0"], ax[0]
-    )
-    fovplot(
-        mfx.stats.per_fov_error[mfx.stats.per_fov_error["Error type"] == "0->1"], ax[1]
-    )
+    fovplot(per_fov_error[per_fov_error["Error type"] == "1->0"], ax[0])
+    fovplot(per_fov_error[per_fov_error["Error type"] == "0->1"], ax[1])
     ax[0].set_title("1->0 error rate")
     ax[1].set_title("0->1 error rate")
     plt.grid(b=False)
@@ -215,10 +213,8 @@ def fov_error_bar(mfx: "MerfishExperiment") -> None:
     plt.savefig(config.path("fov_error.png"), dpi=300)
 
 
-def fov_error_spatial(mfx: "MerfishExperiment") -> None:
-    fovdata = pd.merge(
-        mfx.stats.per_fov_error, mfx.positions, left_on="FOV", right_index=True
-    )
+def fov_error_spatial(per_fov_error, positions) -> None:
+    fovdata = pd.merge(per_fov_error, positions, left_on="FOV", right_index=True)
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8, 6))
     sns.scatterplot(
         ax=ax1,
@@ -244,18 +240,21 @@ def fov_error_spatial(mfx: "MerfishExperiment") -> None:
     fig.savefig(config.path("fov_error_spatial.png"), dpi=300)
 
 
-def rnaseq_correlation(mfx: "MerfishExperiment", dataset) -> None:
+def rnaseq_correlation(bcs, dataset) -> None:
+    refcounts = util.reference_gene_counts(dataset["file"])
     plot_correlation(
-        xcounts=mfx.stats.reference_gene_counts(dataset),
-        ycounts=mfx.stats.merfish_gene_counts,
-        xlabel=f"Log {dataset} Counts",
+        xcounts=refcounts,
+        ycounts=np.log10(bcs["gene"].value_counts()),
+        xlabel=f"Log {dataset['name']} Counts",
         ylabel="Log MERFISH Counts",
-        outfile=config.path(f"correlation_{dataset}.png"),
+        outfile=config.path(f"correlation_{dataset['name']}.png"),
         omit=[],
     )
 
 
-def plot_correlation(xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[]):
+def plot_correlation(
+    xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[], genelabels=True
+):
     set1 = set(xcounts.keys())
     set2 = set(ycounts.keys())
     genes_to_consider = [
@@ -271,8 +270,9 @@ def plot_correlation(xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[]):
     plt.figure(figsize=(10, 7))
     plt.plot(x, p(x), "r--")
     plt.scatter(x, y)
-    for i, txt in enumerate(genes_to_consider):
-        plt.annotate(txt, (x[i], y[i]))
+    if genelabels:
+        for i, txt in enumerate(genes_to_consider):
+            plt.annotate(txt, (x[i], y[i]))
     plt.title("Pearson = %.3f" % corr)
     plt.ylabel(ylabel)
     plt.xlabel(xlabel)
@@ -281,12 +281,10 @@ def plot_correlation(xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[]):
         plt.savefig(outfile, dpi=300)
 
 
-def cell_volume_histogram(mfx):
-    plt.figure()
-    sns.histplot(mfx.celldata["volume"], bins=50)
+@plot(save="cell_volume.png")
+def cell_volume_histogram(celldata):
+    sns.histplot(celldata["volume"], bins=50)
     plt.xlabel("Cell volume (pixels)")
-    plt.tight_layout()
-    plt.savefig(config.path("cell_volume.png"), dpi=300)
 
 
 def plot_mask(mask):
@@ -298,40 +296,52 @@ def plot_mask(mask):
             plt.text(np.median(mask[mask == cellid]), s=cellid)
 
 
-def counts_per_cell_histogram(mfx):
-    plt.figure(figsize=(7, 5))
-    sns.histplot(mfx.single_cell_raw_counts.apply(np.sum, axis=1), bins=50)
+@plot(save="transcript_count_per_cell.png", figsize=(7, 5))
+def counts_per_cell_histogram(counts):
+    sns.histplot(counts.apply(np.sum, axis=1), bins=50)
     plt.xlabel("Transcript count")
     plt.ylabel("Cell count")
-    plt.tight_layout()
     plt.grid(b=False)
-    plt.savefig(config.path("transcript_count_per_cell.png"), dpi=300)
 
 
-def genes_detected_per_cell_histogram(mfx):
-    plt.figure(figsize=(7, 5))
-    sns.histplot(mfx.single_cell_raw_counts.astype(bool).sum(axis=1), binwidth=1)
+@plot(save="genes_detected_per_cell.png", figsize=(7, 5))
+def genes_detected_per_cell_histogram(counts):
+    sns.histplot(counts.astype(bool).sum(axis=1), binwidth=1)
     plt.xlabel("Genes detected")
     plt.ylabel("Cell count")
-    plt.tight_layout()
     plt.grid(b=False)
-    plt.savefig(config.path("genes_detected_per_cell.png"), dpi=300)
 
 
-def spatial_cell_clusters(mfx):
-    plt.figure(figsize=(10, 12), facecolor="black")
-    for cluster in np.unique(mfx.clustering.scdata.obs["leiden"]):
-        inds = mfx.clustering.scdata.obs[
-            mfx.clustering.scdata.obs["leiden"] == cluster
-        ].index.astype(int)
-        x = mfx.celldata.loc[inds]["global_x"]
-        y = mfx.celldata.loc[inds]["global_y"]
-        plt.scatter(y, x, c=mfx.clustering.cmap[int(cluster) % 20], s=0.5)
-    plt.grid(b=False)
-    plt.axis("off")
-    plt.tight_layout()
-    plt.savefig(config.path("spatial_cell_clusters.png"), dpi=300)
+@plot(save="spatial_transcripts_per_fov.png", figsize=(8, 10))
+def spatial_transcripts_per_fov(bcs, positions):
+    plt.scatter(
+        positions["y"],
+        -positions["x"],
+        c=bcs.groupby("fov").count()["gene"],
+        cmap="jet",
+    )
+    plt.colorbar()
 
+
+@plot(save="spatial_cell_clusters.png", style="dark_background")
+def spatial_cell_clusters(adata):
+    sc.pl.embedding(adata, basis="X_spatial", color="leiden")
+
+@plot(save="umap_clusters.png")
+def umap_clusters(adata):
+    nclusts = len(np.unique(adata.obs["leiden"]))
+    sc.pl.umap(
+        adata,
+        color="leiden",
+        add_outline=True,
+        legend_loc="on data",
+        legend_fontsize=12,
+        legend_fontoutline=2,
+        frameon=False,
+        title=f"{nclusts} clusters of {len(adata):,d} cells",
+        #palette=self.cmap,
+        #save="_clusters.png",
+    )
 
 def fov_number_map(mfx):
     plt.figure(figsize=(12, 16), facecolor="white")
@@ -342,42 +352,3 @@ def fov_number_map(mfx):
     plt.axis("off")
     plt.tight_layout()
     plt.savefig(config.path("fov_number_map.png"), dpi=150)
-
-
-def spatial_gene_expression(scdata, gene, use_raw=False, swap_axes=False):
-    if use_raw:
-        counts = scdata.raw[:, gene].X
-        unit = "counts"
-    else:
-        counts = scdata[:, gene].X
-        unit = "z-score"
-    if swap_axes:
-        xs = scdata.obsm["X_spatial"][:, 1]
-        ys = scdata.obsm["X_spatial"][:, 0]
-    else:
-        xs = scdata.obsm["X_spatial"][:, 0]
-        ys = scdata.obsm["X_spatial"][:, 1]
-    data = list(sorted(zip(counts, xs, ys)))
-    scores = [cell[0] for cell in data]
-    x = [cell[1] for cell in data]
-    y = [cell[2] for cell in data]
-
-    plt.figure(figsize=(10, 8), facecolor="black")
-    vmax = np.percentile(scores, 99)
-    plt.scatter(y, x, c=scores, s=2, cmap="coolwarm", vmax=vmax)
-    cb = plt.colorbar(shrink=0.5)
-    cb.ax.set_title(
-        f"{gene}\n{unit}", color="white", fontsize="x-large", fontweight="heavy"
-    )
-    cb.ax.yaxis.set_tick_params(color="black")
-    cb.outline.set_edgecolor("w")
-    plt.setp(
-        plt.getp(cb.ax.axes, "yticklabels"),
-        color="white",
-        fontsize="x-large",
-        fontweight="heavy",
-    )
-    plt.grid(b=None)
-    plt.axis("off")
-    plt.tight_layout()
-    # plt.savefig(f"{gene}.png", dpi=150, facecolor='white')

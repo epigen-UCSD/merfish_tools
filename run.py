@@ -1,7 +1,97 @@
 import argparse
+import os
 
-import config, plotting
-from experiment import MerfishExperiment
+import config
+import fileio
+import segmentation
+import util
+import stats
+import barcodes
+import cellgene
+import plotting
+
+
+def create_cell_metadata_table(masks, positions):
+    celldata = segmentation.make_metadata_table(masks)
+    overlaps = segmentation.find_fov_overlaps(positions)
+    cell_links = segmentation.find_overlapping_cells(overlaps, masks)
+    segmentation.add_overlap_volume(celldata, overlaps, masks)
+    segmentation.add_linked_volume(celldata, cell_links)
+    plotting.cell_volume_histogram(celldata)
+    celldata["global_x"], celldata["global_y"] = util.fov_to_global_coordinates(
+        celldata["fov_x"], celldata["fov_y"], celldata["fov"], positions
+    )
+    celldata = celldata.drop(
+        ["fov_cell_id", "fov_volume", "overlap_volume", "nonoverlap_volume"], axis=1
+    )
+    return celldata, cell_links
+
+
+def create_barcode_table(merlin_dir, masks, positions, cell_links):
+    codebook = fileio.load_codebook(merlin_dir)
+    bcs = barcodes.make_table(merlin_dir, codebook)
+    per_bit_error = barcodes.set_barcode_stats(
+        merlin_dir, bcs, config.get("barcode_colors")
+    )
+    plotting.exact_vs_corrected()
+    per_gene_error = barcodes.per_gene_error(bcs)
+    plotting.confidence_ratios(per_gene_error)
+    plotting.per_bit_error_bar(per_bit_error, config.get("barcode_colors"))
+    plotting.per_bit_error_line(per_bit_error, config.get("barcode_colors"))
+    plotting.per_hyb_error(per_bit_error)
+    plotting.per_color_error(per_bit_error, config.get("barcode_colors"))
+    per_fov_error = barcodes.per_fov_error(bcs)
+    plotting.fov_error_bar(per_fov_error)
+    plotting.fov_error_spatial(per_fov_error, positions)
+    plotting.spatial_transcripts_per_fov(bcs, positions)
+    barcodes.mark_barcodes_in_overlaps(
+        bcs, segmentation.find_fov_overlaps(positions, get_trim=True)
+    )
+    barcodes.assign_to_cells(bcs, masks)
+    barcodes.calculate_global_coordinates(
+        bcs, positions
+    )  # Replace with util.fov_to_global_coordinates
+    barcodes.link_cell_ids(bcs, cell_links)
+    for dataset in config.get("reference_counts"):
+        plotting.rnaseq_correlation(bcs, dataset)
+    return bcs
+
+
+def analyze_experiment():
+    exp_name = config.get("experiment_name")
+    merlin_dir = os.path.join(config.get("analysis_root"), exp_name)
+    segmask_dir = os.path.join(
+        config.get("segmentation_root"), exp_name, config.get("segmentation_name")
+    )
+    stats.savefile = config.path("stats.json")
+    # data_folder = os.path.join(config.get("data_root"), exp_name)
+    positions = fileio.load_fov_positions(merlin_dir)
+    n_fovs = len(positions)
+    stats.set("FOVs", n_fovs)
+    masks = fileio.load_all_masks(segmask_dir, n_fovs)
+
+    # f os.path.exists(config.path("cell_metadata.csv")):
+    # celldata = fileio.load_cell_metadata(config.path("cell_metadata.csv"))
+    # cell_links = fileio.load_cell_links(config.path("cell_links.txt"))
+    # else:
+    celldata, cell_links = create_cell_metadata_table(masks, positions)
+    fileio.save_cell_links(cell_links, config.path("cell_links.txt"))
+    fileio.save_cell_metadata(celldata, config.path("cell_metadata.csv"))
+
+    bcs = create_barcode_table(merlin_dir, masks, positions, cell_links)
+    fileio.save_barcode_table(bcs, config.path("barcodes.csv"))
+
+    counts = barcodes.create_cell_by_gene_table(bcs)
+    fileio.save_cell_by_gene_table(counts, config.path("cell_by_gene.csv"))
+    plotting.counts_per_cell_histogram(counts)
+    plotting.genes_detected_per_cell_histogram(counts)
+    adata = cellgene.create_scanpy_object(counts, celldata)
+    adata.write(config.path("scanpy_object.h5ad"))
+    n_pcs = cellgene.optimize_number_PCs(adata)
+    cellgene.cluster_cells(adata, n_pcs)
+    adata.write(config.path("scanpy_object.h5ad"))
+    plotting.umap_clusters(adata)
+    plotting.spatial_cell_clusters(adata)
 
 
 def main():
@@ -52,12 +142,7 @@ def main():
     )
     args = parser.parse_args()
     config.load(args)
-    mfx = MerfishExperiment()
-    mfx.stats.calculate_decoding_metrics()
-    # print(mfx.stats['Median transcripts per cell'])
-    # print(mfx.stats['Median genes detected per cell'])
-    # for dataset in config.get('reference_counts'):
-    #        plotting.rnaseq_correlation(mfx, dataset['name'])
+    analyze_experiment()
 
 
 if __name__ == "__main__":

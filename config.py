@@ -8,7 +8,7 @@ config = {
     "reference_counts": [],
     "mask_size": 2048,
     "transpose_barcodes": False,
-    "flip_barcodes": False
+    "flip_barcodes": False,
 }
 result_path = None
 
@@ -40,6 +40,7 @@ def load(args):
         if value is None:
             continue
         config[key] = value
+    config["scale"] = 2048 / config["mask_size"]
 
 
 def path(filename):
