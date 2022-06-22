@@ -239,13 +239,16 @@ def mark_barcodes_in_overlaps(barcodes, trim_overlaps):
         ] = "edge"
 
 
-def create_cell_by_gene_table(barcodes) -> pd.DataFrame:
+def create_cell_by_gene_table(barcodes, drop_blank=True) -> pd.DataFrame:
     # Create cell by gene table
     accepted = barcodes[barcodes["status"] == "good"]
     ctable = pd.crosstab(index=accepted["cell_id"], columns=accepted["gene"])
     # Drop blank barcodes
-    drop_cols = [col for col in ctable.columns if "notarget" in col or "blank" in col]
-    ctable = ctable.drop(columns=drop_cols)
+    if drop_blank:
+        drop_cols = [
+            col for col in ctable.columns if "notarget" in col or "blank" in col
+        ]
+        ctable = ctable.drop(columns=drop_cols)
     stats.set("Median transcripts per cell", np.median(ctable.apply(np.sum, axis=1)))
     stats.set(
         "Median genes detected per cell", np.median(ctable.astype(bool).sum(axis=1))
