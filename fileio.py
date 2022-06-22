@@ -134,12 +134,17 @@ def load_cell_metadata(filename):
 def save_cell_by_gene_table(cellbygene, filename):
     cellbygene.to_csv(filename)
 
+def load_cell_by_gene_table(filename):
+    return pd.read_csv(filename, index_col=0)
+
 
 def save_stats(stats, filename) -> None:
     text = json.dumps(stats, indent=4)
     with open(filename, "w") as f:
         f.write(text)
 
+def load_stats(filename):
+    return json.load(open(filename))
 
 class DaxFile:
     def __init__(self, filename, num_channels):
