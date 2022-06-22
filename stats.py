@@ -19,7 +19,6 @@ from scipy.stats import pearsonr
 import config
 import plotting
 import fileio
-from util import announce, csv_cached_property
 
 stats = {}
 savefile = None
