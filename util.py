@@ -1,12 +1,8 @@
-import os
-from functools import cached_property
-
 import pandas as pd
 import numpy as np
 from scipy.stats import zscore
 from skimage.registration import phase_cross_correlation
 
-import config
 
 def calculate_drift(img1, img2):
     q1 = phase_cross_correlation(img1[:1024, :1024], img2[:1024, :1024])[0]

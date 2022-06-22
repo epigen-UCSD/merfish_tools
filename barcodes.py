@@ -1,4 +1,3 @@
-from functools import cached_property
 from collections import defaultdict
 
 import h5py
@@ -205,11 +204,15 @@ def mark_barcodes_in_overlaps(barcodes, trim_overlaps):
             if overlap.xslice.start:
                 xstarts[overlap.xslice.start].append(overlap.fov)
             if overlap.xslice.stop:
-                xstops[2048 // config.get("scale") + overlap.xslice.stop].append(overlap.fov)
+                xstops[2048 // config.get("scale") + overlap.xslice.stop].append(
+                    overlap.fov
+                )
             if overlap.yslice.start:
                 ystarts[overlap.yslice.start].append(overlap.fov)
             if overlap.yslice.stop:
-                ystops[2048 // config.get("scale") + overlap.yslice.stop].append(overlap.fov)
+                ystops[2048 // config.get("scale") + overlap.yslice.stop].append(
+                    overlap.fov
+                )
     for xstart, fovs in xstarts.items():
         barcodes.loc[
             (barcodes["fov"].isin(fovs))

@@ -1,4 +1,3 @@
-from operator import index
 import os
 import re
 import glob
@@ -8,7 +7,6 @@ from typing import Dict
 
 import numpy as np
 import pandas as pd
-from PIL import Image
 from tqdm import tqdm
 
 
@@ -134,6 +132,7 @@ def load_cell_metadata(filename):
 def save_cell_by_gene_table(cellbygene, filename):
     cellbygene.to_csv(filename)
 
+
 def load_cell_by_gene_table(filename):
     return pd.read_csv(filename, index_col=0)
 
@@ -143,8 +142,10 @@ def save_stats(stats, filename) -> None:
     with open(filename, "w") as f:
         f.write(text)
 
+
 def load_stats(filename):
     return json.load(open(filename))
+
 
 class DaxFile:
     def __init__(self, filename, num_channels):

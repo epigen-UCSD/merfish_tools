@@ -4,11 +4,9 @@ from functools import cached_property
 
 import scanpy as sc
 import numpy as np
-from scipy.stats import zscore
 from anndata import AnnData
 from tqdm import tqdm
 
-import config
 import stats
 
 
