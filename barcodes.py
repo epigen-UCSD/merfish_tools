@@ -1,3 +1,43 @@
+"""A collection of functions to work with the barcodes decoded by MERlin.
+
+Functions
+---------
+process_merlin_barcodes
+    Determines error bit/type for barcodes.
+expand_codebook
+    Creates a new codebook with additional barcodes representing all possible
+    single bit flips for all genes. Used to assign error correction information
+    to barcodes.
+normalize_codebook
+    Returns a codebook with L2 normalized barcodes.
+set_barcode_stats
+    Adds barcode statistics to the global stats object (see stats.py)
+make_table
+    Given a MERlin analysis folder and codebook, creates a table of all decoded
+    barcodes with error correction information.
+calculate_global_coordinates
+    Adds the global coordinates to a barcode table.
+assign_to_cells
+    Determines the cell IDs for each barcode.
+link_cell_ids
+    Renames cell IDs to unify overlapping cells in adjacent FOVs.
+mark_barcodes_in_overlaps
+    Sets the status of barcodes to "edge" for those barcodes which are in the
+    overlapping regions of FOVs.
+create_cell_by_gene_table
+    Given a barcode table with assigned cell IDs, returns a cell by gene matrix.
+    Barcodes marked with "edge" status are not counted.
+count_unfiltered_barcodes
+    Gets the number of barcodes MERlin decoded before applying adaptive filtering.
+get_per_bit_stats
+    Calculates the per-bit error rates for a given gene.
+get_per_gene_error
+    Calculates the overall error rates for each gene.
+per_bit_error
+    Calculates the average error rate for each bit across all genes.
+per_fov_error
+    Calculates the error rate within each FOV.
+"""
 from collections import defaultdict
 
 import h5py
@@ -58,7 +98,7 @@ def normalize_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
     return normcodes
 
 
-def set_barcode_stats(merlin_dir, bcs, colors):
+def set_barcode_stats(merlin_dir: str, bcs: pd.DataFrame, colors: list) -> pd.DataFrame:
     stats.set("Unfiltered barcode count", count_unfiltered_barcodes(merlin_dir))
     stats.set("Filtered barcode count", len(bcs))
     stats.set(
