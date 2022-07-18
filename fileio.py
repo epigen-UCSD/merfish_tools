@@ -87,6 +87,10 @@ def load_mask(segmask_dir: str, fov: int, pad: int = 3) -> np.ndarray:
     if os.path.exists(filename):
         return np.load(filename, allow_pickle=True).item()["masks"]
 
+    filename = os.path.join(segmask_dir, f"stack_prestain_{fov:0{pad}d}_seg.npy")
+    if os.path.exists(filename):
+        return np.load(filename, allow_pickle=True).item()["masks"]
+
     raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
 
