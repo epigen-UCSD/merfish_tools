@@ -9,6 +9,7 @@ config = {
     "mask_size": 2048,
     "transpose_barcodes": False,
     "flip_barcodes": False,
+    "scale": 1,
 }
 result_path = None
 
