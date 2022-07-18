@@ -1,38 +1,149 @@
-"""Functions for processing MERFISH images."""
+"""Functions for processing MERFISH images.
+
+Many functions can take an image "stack" which is expected to be a 4-dimensional
+numpy array with the axes corresponding to bit, z, x, and y. For example,
+a 22-bit MERFISH experiment imaged with 20 z-slices and 2048x2048 pixel images
+would expect the stack to have a shape of (22, 20, 2048, 2048). The function
+load_combinatorial_stack loads DAX images from disk and returns such an array.
+"""
 
 import os
+import logging
+from typing import Iterable
+
+import faiss
+import cupy as cp
 import numpy as np
-from tqdm import tqdm
-import cv2
-from skimage.registration import phase_cross_correlation
-from scipy.stats import zscore
 import pandas as pd
+from cupyx.scipy.ndimage import gaussian_filter, label
+
+# from cupyx.scipy.signal import gaussian
+from scipy import signal
+from cupyx.scipy.fft import fftn, ifftn
+from scipy.stats import zscore
 
 import fileio
 
 
-def normalize_brightness(imgs, quants=[25, 35, 45, 55, 65, 75]):
-    percentiles = np.array([np.percentile(img, quants) for img in imgs])
+def gaussian_kernel(kernlen=21, std=3):
+    """Returns a 2D Gaussian kernel array."""
+    gkern1d = signal.gaussian(kernlen, std=std).reshape(kernlen, 1)
+    gkern2d = np.outer(gkern1d, gkern1d)
+    return gkern2d
+
+
+def normalize_brightness(
+    stack: cp.ndarray,
+    quants: Iterable[int] = (25, 35, 45, 55, 65, 75),
+) -> None:
+    """Normalize the brightness of a FOV across hybridization rounds.
+
+    Brightness is normalized by calculating the mean brightness at different
+    percentiles across the images and then computing a scaling factor for each
+    images as the average ratio of that image's percentiles to the means.
+
+    Parameters
+    ----------
+    stack: A 4D array of images across all bits.
+    quants: List of percentiles to use for normalization
+    """
+    percentiles = cp.array([cp.percentile(img[img > 0], quants) for img in stack])
     scale_factors = (percentiles.mean(axis=0) / percentiles).mean(axis=1)
-    return np.array(
-        [img * scale_factor for img, scale_factor in zip(imgs, scale_factors)]
+    stack[:] = (stack.swapaxes(0, -1) * scale_factors).swapaxes(0, -1)
+
+
+def highpass_filter(img: cp.ndarray, sigma: float = 3) -> None:
+    """Apply a high-pass filter to the image.
+
+    If the image is 3D, the high-pass filter is applied independently to each
+    z-slice.
+
+    Parameters
+    ----------
+    img: The image to apply the filter to
+    ksize: Parameter passed to cv2.GaussianBlur. Numbers must be odd.
+    sigma: Parameter passed to cv2.GaussianBlur
+
+    Returns
+    -------
+    The filtered image
+    """
+    if img.ndim == 2:
+        blur = gaussian_filter(img, sigma, mode="nearest")
+        newimg = img - blur
+        newimg[blur > img] = 0
+        img[:] = newimg
+    else:
+        for i in range(0, img.shape[0]):
+            highpass_filter(img[i], sigma)
+
+
+def lowpass_filter(img: cp.ndarray, sigma: float = 1) -> None:
+    """Apply a low-pass filter to the image."""
+    if img.ndim == 2:
+        img[:] = gaussian_filter(img, sigma, mode="nearest")
+    else:
+        for i in range(0, img.shape[0]):
+            highpass_filter(img[i], sigma)
+
+
+def flat_field_correct(img: cp.ndarray, sigma: float = 75) -> None:
+    """Perform flat-field correction on an image.
+
+    Flat-field correction is performed by dividing the image by a heavily blurred
+    copy of the image, then re-scaling to maintain the original average brightness.
+    If the image is 3D, the flat-field correction is performed independently on
+    each z-slice.
+    """
+    if img.ndim == 2:
+        dst = gaussian_filter(img, sigma, mode="nearest")
+        avg_hist = img.mean()
+        img[:] = (img / dst) * avg_hist
+    else:
+        for i in range(0, img.shape[0]):
+            flat_field_correct(img[i], sigma)
+
+
+def phase_cross_correlation(reference_image, moving_image, normalization="phase"):
+    """Find translation between images using cross-correlation.
+
+    This is adapted from the phase_cross_correlation function in skimage
+    but uses the GPU for faster computation.
+    """
+    src_freq = fftn(reference_image)
+    target_freq = fftn(moving_image)
+
+    # Whole-pixel shift - Compute cross-correlation by an IFFT
+    shape = src_freq.shape
+    image_product = src_freq * target_freq.conj()
+    if normalization == "phase":
+        eps = cp.finfo(image_product.real.dtype).eps
+        image_product /= cp.maximum(cp.abs(image_product), 100 * eps)
+    elif normalization is not None:
+        raise ValueError("normalization must be either phase or None")
+    cross_correlation = ifftn(image_product)
+
+    # Locate maximum
+    maxima = cp.unravel_index(
+        cp.argmax(cp.abs(cross_correlation)), cross_correlation.shape
     )
+    midpoints = cp.array([cp.fix(axis_size / 2) for axis_size in shape])
+
+    float_dtype = image_product.real.dtype
+
+    shifts = cp.stack(maxima).astype(float_dtype, copy=False)
+    shifts[shifts > midpoints] -= cp.array(shape)[shifts > midpoints]
+
+    # If its only one row or column the shift along that dimension has no
+    # effect. We set to zero.
+    for dim in range(src_freq.ndim):
+        if shape[dim] == 1:
+            shifts[dim] = 0
+
+    return shifts
 
 
-def highpass_filter(img, ksize=(13, 13), sigma=3):
-    blur = cv2.GaussianBlur(img.astype(np.float), ksize, sigma, cv2.BORDER_REPLICATE)
-    newimg = img - blur
-    newimg[blur > img] = 0
-    return newimg
-
-
-def flat_field_correct(img, ksize=(201, 201), sigma=75):
-    dst = cv2.GaussianBlur(img, ksize, sigma)
-    avg_hist = img.mean()
-    return (img / dst) * avg_hist
-
-
-def calculate_drift(img1, img2, chunks=2):
+def calculate_drift(img1, img2, chunks=3):
     inds = np.linspace(0, img1.shape[0], num=chunks + 1, dtype=int)
     drifts = []
     for xstart, xstop in zip(inds, inds[1:]):
@@ -40,7 +151,7 @@ def calculate_drift(img1, img2, chunks=2):
             drifts.append(
                 phase_cross_correlation(
                     img1[xstart:xstop, ystart:ystop], img2[xstart:xstop, ystart:ystop]
-                )[0]
+                ).get()
             )
     df = pd.DataFrame(drifts)
     # print(df)
@@ -56,134 +167,166 @@ def calculate_drift(img1, img2, chunks=2):
     return np.array(df.median(), dtype=np.int16)
 
 
-def align_image(img, drift):
-    rolled = np.roll(img, drift, axis=(0, 1))
-    # Maybe set edges to 0?
-    # Wrapping might not be bad, it will be noise and we throw away
-    # molecules on edges anyway
-    # i2[-500:, :] = 0
-    # i2[:, :80] = 0
-    return rolled
+def make_codebook_index(codebook_file):
+    codebook = fileio.load_codebook(codebook_file)
+    codes = codebook.filter(like="bit")
+    X_codebook = np.ascontiguousarray(codes.to_numpy(), dtype=np.float32)
+    faiss.normalize_L2(X_codebook)
+    codebook_idx = faiss.IndexFlatL2(X_codebook.shape[1])
+    try:
+        res = faiss.StandardGpuResources()
+        codebook_idx = faiss.index_cpu_to_gpu(res, 0, codebook_idx)
+    except AttributeError:
+        print("Faiss GPU not functional, using CPU")
+    codebook_idx.add(np.ascontiguousarray(X_codebook, dtype=np.float32))
+    return codebook_idx, X_codebook
 
 
-def align_stack(imgs, drifts):
-    aln = np.array(
-        [
-            align_image(img, drift)
-            for img, drift in zip(imgs[2:], np.repeat(drifts.astype(int), 2, axis=0))
-        ]
-    )
-    return np.concatenate([imgs[:2, :, :], aln])
+def align_stack(stack, drifts):
+    for i, (img, drift) in enumerate(zip(stack[2:], np.repeat(drifts, 2, axis=0))):
+        stack[i + 2] = cp.roll(img, drift, axis=(-2, -1))
 
 
-def load_fiducial_stack(data_dir, fov, rounds=11, channel=2, zslice=0):
+def load_fiducial_stack(data_dir, fov, zslice=0, rounds=11, channel=2):
     imgs = []
     for round in range(1, rounds + 1):
         path = os.path.join(data_dir, f"Conv_zscan_H{round}_F_{fov:03d}.dax")
         imgs.append(fileio.DaxFile(path, num_channels=3).zslice(zslice, channel))
-    return np.array(imgs)
+    return cp.array(np.array(imgs))
 
 
-def load_combinatorial_stack(data_dir, fov, zslice, rounds=11, bits_per_round=2):
+def load_combinatorial_stack(data_dir, fov, zslice=None, rounds=11, bits_per_round=2):
+    """Load all bit images for a single FOV.
+
+    Parameters
+    ----------
+    data_dir: Directory containing the DAX files
+    fov: The FOV number to load
+    zslice: The zslice to load. If None, 3D images are loaded
+    rounds: The number of hybridization rounds in the experiment
+    bits_per_round: The number of colors used for bits per round
+
+    Returns
+    -------
+    Numpy array of images
+    """
     imgs = []
     for round in range(1, rounds + 1):
         path = os.path.join(data_dir, f"Conv_zscan_H{round}_F_{fov:03d}.dax")
         dax = fileio.DaxFile(path, num_channels=3)
         for bit in range(0, bits_per_round):
-            imgs.append(dax.zslice(zslice, bit))
-    return np.array(imgs)
+            if zslice:
+                imgs.append(dax.zslice(zslice, bit))
+            else:
+                imgs.append(dax.channel(bit))
+    return cp.array(np.array(imgs))
 
 
-def find_adjacent(mask, id, x, y):
-    if x < 0 or y < 0 or x >= mask.shape[0] or y >= mask.shape[1] or mask[x, y] != id:
-        return []
-    mask[x, y] = -1
-    return (
-        [(x, y)]
-        + find_adjacent(mask, id, x + 1, y)
-        + find_adjacent(mask, id, x - 1, y)
-        + find_adjacent(mask, id, x, y + 1)
-        + find_adjacent(mask, id, x, y - 1)
-    )
+def assign_pixels_to_molecules(decoded, do_3d=False):
+    def get_molecule_coords(id, z, x, y):
+        if decoded[z, x, y] != id:
+            return
+        yield (z, x, y)
+        decoded[z, x, y] = -1
+        if x > 0:
+            yield from get_molecule_coords(id, z, x - 1, y)
+        if x < decoded.shape[1] - 1:
+            yield from get_molecule_coords(id, z, x + 1, y)
+        if y > 0:
+            yield from get_molecule_coords(id, z, x, y - 1)
+        if y < decoded.shape[2] - 1:
+            yield from get_molecule_coords(id, z, x, y + 1)
+        if do_3d:
+            if z > 0:
+                yield from get_molecule_coords(id, z - 1, x, y)
+            if z < decoded.shape[0] - 1:
+                yield from get_molecule_coords(id, z + 1, x, y)
 
-
-def L2_normalize_stack(imgs):
-    l2 = np.linalg.norm(imgs, axis=0)
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.nan_to_num(imgs / l2)
-
-
-def assign_pixels_to_molecules(decoded):
     molecules = []
-    for x in range(decoded.shape[0]):
-        for y in range(decoded.shape[1]):
-            if decoded[x, y] >= 0:
-                molecules.append(
-                    (int(decoded[x, y]), find_adjacent(decoded, decoded[x, y], x, y))
-                )
-    return molecules
+    mol_id = 0
+    for z, x, y in zip(*np.where(decoded >= 0)):
+        if decoded[z, x, y] >= 0:
+            gene = decoded[z, x, y]
+            molecules.extend(
+                [
+                    (mol_id, gene, *coords)
+                    for coords in get_molecule_coords(gene, z, x, y)
+                ]
+            )
+            mol_id += 1
+    return cp.array(molecules)
 
 
-def decode_pixels(imgs, codebook_idx, X_codebook):
-
-    l2vecs = L2_normalize_stack(imgs)
-
-    X_pixels = np.moveaxis(np.reshape(l2vecs, (22, 2048 * 2048)), 0, -1)
-
-    # indexes = nn.kneighbors(X_pixels)
-    dists, indexes = codebook_idx.search(
-        np.ascontiguousarray(X_pixels, dtype=np.float32), k=1
+def decode_pixels(stack, codebook_idx, X_codebook, distance_threshold=0.5167):
+    X_pixels = cp.reshape(stack, (stack.shape[0], np.product(stack.shape[1:])))
+    X_pixels = cp.moveaxis(X_pixels / cp.linalg.norm(X_pixels, axis=0), 0, -1).astype(
+        np.float32
     )
-    dists = np.sqrt(dists)
+    dists, indexes = codebook_idx.search(X_pixels.get(), k=1)
 
-    decoded = np.zeros(X_pixels.shape[0]) - 1
-    valid = dists.flatten() <= 0.5167
+    decoded = cp.zeros(X_pixels.shape[0], dtype=cp.int32) - 1
+    # faiss returns squared distance (to avoid sqrt op)
+    valid = dists.flatten() <= distance_threshold ** 2
     decoded[valid] = indexes.flatten()[valid]
-    decoded = np.reshape(decoded, imgs[0].shape)
+    decoded = cp.reshape(decoded, stack[0].shape)
 
-    molecules = assign_pixels_to_molecules(decoded)
+    # molecules = assign_pixels_to_molecules(decoded)
+    genes = cp.unique(decoded)[1:]
+    labels = cp.zeros_like(decoded, dtype=cp.int32) - 1
+    nlabels = 0
+    for gene in genes:
+        (gene_labels, gene_nlabels) = label(decoded == gene)
+        mask = gene_labels != 0
+        labels[mask] = gene_labels[mask] + nlabels
+        nlabels += gene_nlabels
+    nonzero = cp.where(decoded >= 0)
+    molecules = cp.array(
+        [labels[nonzero].flatten(), decoded[nonzero].flatten(), *cp.where(decoded >= 0)]
+    ).T
 
-    rows = np.zeros((valid.sum(), 9))
-    cursor = 0
-    for i, molecule in enumerate(molecules):
-        end = cursor + len(molecule[1])
-        rows[cursor:end, :2] = molecule[1]
-        rows[cursor:end, 2] = i
-        rows[cursor:end, 3] = molecule[0]
-        rows[cursor:end, 4] = len(molecule[1])
-        dim1 = np.ravel_multi_index(np.transpose(np.array(molecule[1])), (2048, 2048))
-        dim2 = X_codebook[molecule[0]] > 0
-        flatimg = np.moveaxis(np.reshape(imgs, (22, 2048 * 2048)), 0, -1)[dim1]
-        rows[cursor:end, 5] = flatimg[:, dim2].mean(axis=1)
-        rows[cursor:end, 6] = flatimg[:, dim2].max(axis=1)
-        rows[cursor:end, 7] = dists[dim1].flatten()
-        rows[cursor:end, 8] = flatimg[:, dim2].mean(axis=1) / flatimg.mean(axis=1)
-        # rows[cursor:end, 9] = flatimg.max(axis=1)
-        # rows[cursor:end, 10] = flatimg.std(axis=1)
-        cursor += len(molecule[1])
+    inds = cp.ravel_multi_index(cp.transpose(molecules[:, 2:]), stack.shape[1:])
+    flatimg = cp.moveaxis(
+        cp.reshape(stack, (stack.shape[0], np.product(stack.shape[1:]))), 0, -1
+    )
+    intensities = flatimg[inds]
+    bits = intensities[X_codebook[molecules[:, 1].get()] > 0].reshape((inds.size, 4))
+    mean_intensities = bits.mean(axis=1)
+    snrs = mean_intensities / intensities.mean(axis=1)
+    data = cp.array([mean_intensities, bits.max(axis=1), snrs]).T
+    molecules = cp.concatenate([molecules, data, cp.array(dists[inds.get()])], axis=1)
 
-    pixels = pd.DataFrame(
-        rows,
-        columns=[
-            "x",
-            "y",
+    if stack.ndim == 4:
+        columns = [
             "rna_id",
             "barcode_id",
-            "area",
+            "z",
+            "x",
+            "y",
             "mean_intensity",
             "max_intensity",
-            "distance",
             "snr",
-            # "max_intensity_all",
-            # "std_intensity",
-        ],
-    )
+            "distance",
+        ]
+    else:
+        columns = [
+            "rna_id",
+            "barcode_id",
+            "x",
+            "y",
+            "mean_intensity",
+            "max_intensity",
+            "snr",
+            "distance",
+        ]
+    pixels = pd.DataFrame(molecules.get(), columns=columns)
+    pixels["area"] = pixels.groupby("rna_id")["rna_id"].transform("count")
     return pixels
 
 
 def combine_pixels_to_molecules(pixels):
     return pixels.groupby("rna_id").agg(
         {
+            "z": "mean",
             "x": "mean",
             "y": "mean",
             "barcode_id": "min",
@@ -196,6 +339,21 @@ def combine_pixels_to_molecules(pixels):
     )
 
 
+def decode_fov(folder, fov, codebook_idx, X_codebook):
+    beads = load_fiducial_stack(folder, fov, zslice=0, rounds=11, channel=2)
+    drifts = np.array([calculate_drift(beads[0], img) for img in beads[1:]])
+    stack = load_combinatorial_stack(
+        folder, fov, zslice=None, rounds=11, bits_per_round=2
+    )
+    flat_field_correct(stack)
+    normalize_brightness(stack)
+    highpass_filter(stack, sigma=2)
+    # lowpass_filter(stack)
+    align_stack(stack, drifts)
+    pixels = decode_pixels(stack, codebook_idx, X_codebook)
+    return combine_pixels_to_molecules(pixels)
+
+
 def calc_misid(data):
     return (len(data[data["barcode_id"] < 10]) / 10) / (
         len(data[data["barcode_id"] >= 10]) / 238
@@ -204,9 +362,9 @@ def calc_misid(data):
 
 def filter_molecules_histogram(molecules):
     histogram = {
-        "mean_intensity": np.percentile(molecules["mean_intensity"], range(2, 98, 2)),
-        "distance": np.percentile(molecules["distance"], range(2, 98, 2)),
-        "area": [1, 2, 3, 4, 5],
+        "mean_intensity": np.percentile(molecules["mean_intensity"], range(1, 100)),
+        "distance": np.percentile(molecules["distance"], range(1, 100)),
+        "area": range(1, 26),
     }
     bins = [
         np.searchsorted(edges, molecules[feature])
@@ -247,7 +405,7 @@ def filter_molecules_histogram(molecules):
             ]
         )
         print(misid, cutoff, top, bottom)
-        if misid > 0.05:
+        if misid > 0.051:
             top = cutoff
         else:
             bottom = cutoff
