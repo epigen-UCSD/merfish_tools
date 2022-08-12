@@ -35,6 +35,15 @@ def merlin_barcode_files(merlin_dir: str) -> list:
     )
 
 
+def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
+    bcs = []
+    for bcfile in glob.glob(f"{output_folder}/region_*/detected_transcripts.csv"):
+        bcs.append(pd.read_csv(bcfile, index_col=0))
+        region = bcfile.split("/")[-2].split("_")[1]
+        bcs[-1]["region"] = region
+    return pd.concat(bcs).reset_index().drop(columns="index")
+
+
 def load_hyb_drifts(merlin_dir: str, fov: int) -> pd.DataFrame:
     """Get the drifts calculated between hybridization rounds for the given FOV.
 
@@ -90,6 +99,12 @@ def load_mask(segmask_dir: str, fov: int, pad: int = 3) -> np.ndarray:
     filename = os.path.join(segmask_dir, f"stack_prestain_{fov:0{pad}d}_seg.npy")
     if os.path.exists(filename):
         return np.load(filename, allow_pickle=True).item()["masks"]
+
+    filename = os.path.join(segmask_dir, f"stack_prestain_{fov:0{pad}d}_cp_masks.png")
+    if os.path.exists(filename):
+        from PIL import Image
+
+        return np.asarray(Image.open(filename))
 
     raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
