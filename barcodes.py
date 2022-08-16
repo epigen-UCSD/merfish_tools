@@ -75,7 +75,12 @@ def process_merlin_barcodes(
     df = df.reset_index(drop=True)
     df["gene"] = res["name"]
     df["error_type"] = res["bits"] - 4
-    df["error_bit"] = res["id"].str.split("flip", expand=True)[1].fillna(0).astype(int)
+    try:
+        df["error_bit"] = (
+            res["id"].str.split("flip", expand=True)[1].fillna(0).astype(int)
+        )
+    except KeyError:
+        df["error_bit"] = 0
     return df
 
 
@@ -186,16 +191,12 @@ def assign_to_cells(barcodes, masks, drifts=None):
             ydrift = drifts.loc[fov]["Y drift"]
         else:
             xdrift, ydrift = 0, 0
-        x = (
-            round(group["x"] + xdrift).apply(
-                lambda n: 0 if n < 0 else 2047 if n > 2047 else n
-            )
-        ) // config.get("scale")
-        y = (
-            round(group["y"] + ydrift).apply(
-                lambda n: 0 if n < 0 else 2047 if n > 2047 else n
-            )
-        ) // config.get("scale")
+        x = round(group["x"] + xdrift).apply(lambda n: min(n, 2047)) // config.get(
+            "scale"
+        )
+        y = round(group["y"] + ydrift).apply(lambda n: min(n, 2047)) // config.get(
+            "scale"
+        )
         x = x.astype(int)
         y = y.astype(int)
         if len(masks[fov].shape) == 3:
@@ -286,7 +287,7 @@ def create_cell_by_gene_table(barcodes, drop_blank=True) -> pd.DataFrame:
     # Drop blank barcodes
     if drop_blank:
         drop_cols = [
-            col for col in ctable.columns if "notarget" in col or "blank" in col
+            col for col in ctable.columns if "notarget" in col or "blank" in col.lower()
         ]
         ctable = ctable.drop(columns=drop_cols)
     stats.set("Median transcripts per cell", np.median(ctable.apply(np.sum, axis=1)))
