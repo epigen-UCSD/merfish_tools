@@ -15,7 +15,9 @@ def create_scanpy_object(cellgene, celldata, scale=False):
     adata.obsm["X_spatial"] = np.array(
         celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
     )
-    adata.obs["volume"] = celldata["volume"].reindex(index=adata.obs.index.astype(int))
+    celldata.index = celldata.index.astype(str)
+    adata.obs["volume"] = celldata["volume"]
+    adata.obs["fov"] = celldata["fov"].astype(str)
     sc.pp.filter_cells(adata, min_genes=3)
     # self.mfx.update_filtered_celldata("Low genes")
     sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
