@@ -10,19 +10,21 @@ from tqdm import tqdm
 import stats
 
 
-def create_scanpy_object(cellgene, celldata):
+def create_scanpy_object(cellgene, celldata, scale=False):
     adata = sc.AnnData(cellgene, dtype=np.int32)
     adata.obsm["X_spatial"] = np.array(
         celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
     )
+    adata.obs["volume"] = celldata["volume"].reindex(index=adata.obs.index.astype(int))
     sc.pp.filter_cells(adata, min_genes=3)
     # self.mfx.update_filtered_celldata("Low genes")
     sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
+    adata.layers["counts"] = adata.X
     sc.pp.normalize_total(adata)
-    sc.pp.log1p(adata, base=10)
-    sc.pp.normalize_total(adata)
+    sc.pp.log1p(adata, base=2)
     adata.raw = adata
-    sc.pp.scale(adata)
+    if scale:
+        sc.pp.scale(adata)
     return adata
 
 
