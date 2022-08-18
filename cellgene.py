@@ -10,16 +10,33 @@ from tqdm import tqdm
 import stats
 
 
-def create_scanpy_object(cellgene, celldata):
+def create_scanpy_object(cellgene, celldata, positions):
     adata = sc.AnnData(cellgene, dtype=np.int32)
     adata.obsm["X_spatial"] = np.array(
         celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
+    )
+    adata.obsm["X_local"] = np.array(
+        celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int))
     )
     celldata.index = celldata.index.astype(str)
     adata.obs["volume"] = celldata["volume"]
     adata.obs["fov"] = celldata["fov"].astype(str)
     adata.layers["counts"] = adata.X
+    adata.uns["fov_positions"] = positions.to_numpy()
     return adata
+
+
+def adjust_spatial_coordinates(
+    adata, flip_horizontal=False, flip_vertical=False, transpose=False
+):
+    if transpose and (flip_horizontal or flip_vertical):
+        pass  # TODO: Should warn about order of operations
+    if transpose:
+        adata.obsm["X_spatial"] = np.roll(adata.obsm["X_spatial"], 1, 1)
+    if flip_horizontal:
+        adata.obsm["X_spatial"][:, 0] = -adata.obsm["X_spatial"][:, 0]
+    if flip_vertical:
+        adata.obsm["X_spatial"][:, 1] = -adata.obsm["X_spatial"][:, 1]
 
 
 def normalize(adata, scale=False):
