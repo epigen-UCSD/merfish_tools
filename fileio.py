@@ -167,7 +167,7 @@ def load_stats(filename):
 
 
 class DaxFile:
-    def __init__(self, filename, num_channels):
+    def __init__(self, filename, num_channels=None):
         self.filename = filename
         self.num_channels = num_channels
         self._info = None
@@ -183,6 +183,9 @@ class DaxFile:
         )
         if self.fileinfo("endian") == 1:
             self._memmap = self._memmap.byteswap()
+
+    def __getitem__(self, key):
+        return self._memmap[key]
 
     def logmsg(self, message):
         return f"Dax file {self.filename} - {message}"
