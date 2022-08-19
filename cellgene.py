@@ -11,7 +11,12 @@ import stats
 
 
 def create_scanpy_object(cellgene, celldata, positions):
-    adata = sc.AnnData(cellgene, dtype=np.int32)
+    blank_cols = np.array(
+        ["notarget" in col or "blank" in col.lower() for col in cellgene]
+    )
+    adata = sc.AnnData(cellgene.loc[:, ~blank_cols], dtype=np.int32)
+    adata.obsm["X_blanks"] = cellgene.loc[:, blank_cols].to_numpy()
+    adata.uns["blank_names"] = cellgene.columns[blank_cols].to_list()
     adata.obsm["X_spatial"] = np.array(
         celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
     )
@@ -23,6 +28,12 @@ def create_scanpy_object(cellgene, celldata, positions):
     adata.obs["fov"] = celldata["fov"].astype(str)
     adata.layers["counts"] = adata.X
     adata.uns["fov_positions"] = positions.to_numpy()
+    sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
+    adata.obs["blank_counts"] = adata.obsm["X_blanks"].sum(axis=1)
+    adata.obs["misid_rate"] = (
+        adata.obs["blank_counts"] / len(adata.uns["blank_names"])
+    ) / (adata.obs["total_counts"] / len(adata.var_names))
+    adata.obs["counts_per_volume"] = adata.obs["total_counts"] / adata.obs["volume"]
     return adata
 
 
@@ -42,7 +53,6 @@ def adjust_spatial_coordinates(
 def normalize(adata, scale=False):
     sc.pp.filter_cells(adata, min_genes=3)
     # self.mfx.update_filtered_celldata("Low genes")
-    sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata, base=2)
     adata.raw = adata
