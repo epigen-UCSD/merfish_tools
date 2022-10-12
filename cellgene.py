@@ -51,8 +51,6 @@ def adjust_spatial_coordinates(
 
 
 def normalize(adata, scale=False):
-    sc.pp.filter_cells(adata, min_genes=3)
-    # self.mfx.update_filtered_celldata("Low genes")
     sc.pp.normalize_total(adata)
     sc.pp.log1p(adata, base=2)
     adata.raw = adata
