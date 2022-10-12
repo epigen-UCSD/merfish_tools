@@ -23,7 +23,8 @@ from scipy.stats import zscore
 
 import fileio
 
-log = logging.getLogger("merfish.images")
+log = logging.getLogger(__name__)
+rng = np.random.default_rng(seed=1047)
 
 
 def gaussian_kernel(kernlen: int, std: float) -> np.ndarray:
@@ -446,33 +447,17 @@ def decode_pixels(stack, codebook_idx, X_codebook, distance_threshold=0.5167):
     mean_intensities = bits.mean(axis=1)
     snrs = mean_intensities / intensities.mean(axis=1)
     data = cp.array([mean_intensities, bits.max(axis=1), snrs]).T
+    data = cp.concatenate([intensities, data], axis=1)
     molecules = cp.concatenate([molecules, data, cp.array(dists[inds.get()])], axis=1)
     log.info(f"{len(molecules)} molecules decoded")
 
     # print("Constructing dataframe")
+    columns = ["rna_id", "barcode_id"]
     if stack.ndim == 4:
-        columns = [
-            "rna_id",
-            "barcode_id",
-            "z",
-            "x",
-            "y",
-            "mean_intensity",
-            "max_intensity",
-            "snr",
-            "distance",
-        ]
-    else:
-        columns = [
-            "rna_id",
-            "barcode_id",
-            "x",
-            "y",
-            "mean_intensity",
-            "max_intensity",
-            "snr",
-            "distance",
-        ]
+        columns += ["z"]
+    columns += ["x", "y"]
+    columns += [f"bit{bit+1}" for bit in range(intensities.shape[1])]
+    columns += ["mean_intensity", "max_intensity", "snr", "distance"]
     pixels = pd.DataFrame(molecules.get(), columns=columns)
     pixels["area"] = pixels.groupby("rna_id")["rna_id"].transform("count")
     return pixels
@@ -517,6 +502,45 @@ def decode_fov(
     molecules = combine_pixels_to_molecules(pixels)
     molecules["fov"] = fov
     return molecules
+
+
+def decode_random_sample(
+    folder,
+    codebook_idx,
+    X_codebook,
+    sample_size,
+    n_fovs,
+    n_zstacks,
+    scale_factors=None,
+    chromatic_corrector=None,
+):
+    fovs = rng.integers(n_fovs, size=sample_size)
+    zinds = rng.integers(n_zstacks, size=sample_size)
+    mols = []
+    pixs = []
+    for fov, z in zip(fovs, zinds):
+        # print(fov, z)
+        beads = load_fiducial_stack(folder, fov, zslice=z, rounds=11, channel=2)
+        drifts = cp.array(
+            [calculate_drift(beads[0], img, upsample_factor=100) for img in beads[1:]]
+        )
+        stack = load_combinatorial_stack(
+            folder, fov, zslice=z, rounds=11, bits_per_round=2
+        )
+        preprocess_stack(stack, drifts, scale_factors, chromatic_corrector)
+        pix = decode_pixels(stack, codebook_idx, X_codebook)
+        pix["z"] = z
+        mols.append(combine_pixels_to_molecules(pix))
+        pixs.append(pix)
+    return pd.concat(pixs), pd.concat(mols)
+
+
+def get_scale_factors(pixels, X_codebook, area=5):
+    keep = pixels[pixels["area"] >= area].groupby("rna_id").mean()
+    ints = keep.filter(like="bit").to_numpy()
+    ints[X_codebook[keep["barcode_id"].astype(int)] == 0] = np.nan
+    scale_factors = np.nanmean(ints, axis=0)
+    return np.nan_to_num(scale_factors / np.nanmean(scale_factors), nan=1)
 
 
 def calc_misid(data):
