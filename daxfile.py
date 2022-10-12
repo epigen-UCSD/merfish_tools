@@ -3,7 +3,9 @@ import re
 
 
 class DaxFile:
-    def __init__(self, filename, num_channels):
+    def __init__(self, filename, num_channels=None):
+        """Note: If num_channels=None, the channel and zslice functions will not
+        work."""
         self.filename = filename
         self.num_channels = num_channels
         self._info = None
