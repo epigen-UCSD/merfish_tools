@@ -10,15 +10,16 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def merlin_barcode_folder(merlin_dir):
+def merlin_barcode_folder(merlin_dir: str) -> str:
+    """Get the path to the folder containing the filtered barcode files."""
     return os.path.join(merlin_dir, "AdaptiveFilterBarcodes", "barcodes")
 
 
-def merlin_raw_barcode_folder(merlin_dir):
+def merlin_raw_barcode_folder(merlin_dir: str) -> str:
     return os.path.join(merlin_dir, "Decode", "barcodes")
 
 
-def merlin_raw_barcode_files(merlin_dir):
+def merlin_raw_barcode_files(merlin_dir: str) -> list:
     return glob.glob(
         os.path.join(merlin_raw_barcode_folder(merlin_dir), "barcode_data_*.h5")
     )
@@ -109,7 +110,7 @@ def load_mask(segmask_dir: str, fov: int, pad: int = 3) -> np.ndarray:
     raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
 
-def load_all_masks(segmask_dir: str, n_fovs: int, pad: int = None):
+def load_all_masks(segmask_dir: str, n_fovs: int, pad: int = None) -> list:
     if pad is None:
         pad = len(str(n_fovs))
     return [
