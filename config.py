@@ -46,8 +46,10 @@ transpose_barcodes
 
 import json
 import os
+from pathlib import Path
 
 config = {
+    # Defaults
     "omit_fovs": [],
     "reference_counts": [],
     "mask_size": 2048,
@@ -55,11 +57,20 @@ config = {
     "flip_barcodes": False,
     "scale": 1,
 }
-result_path = None
 
 
 def get(key: str):
     return config[key]
+
+
+def set(key: str, value):
+    global config
+    if key in ["merlin_folder", "image_folder", "segmentation_folder", "output_folder"]:
+        config[key] = Path(value)
+        if key == "output_folder":
+            get(key).mkdir(exist_ok=True, parents=True)
+    else:
+        config[key] = value
 
 
 def has(key: str) -> bool:
@@ -68,27 +79,23 @@ def has(key: str) -> bool:
 
 def update(settings: dict) -> None:
     for key, value in settings.items():
-        config[key] = value
+        set(key, value)
 
 
 def load_from_file(config_file: str) -> None:
-    global config
     with open(config_file) as conf:
         config.update(json.loads(conf.read()))
 
 
 def load(args):
-    global config
     if args.config_file:
         load_from_file(args.config_file)
     for key, value in vars(args).items():
         if value is None:
             continue
-        config[key] = value
-    config["scale"] = 2048 / config["mask_size"]
+        set(key, value)
+    set("scale", 2048 / get("mask_size"))
 
 
 def path(filename):
-    if not os.path.exists(get("output_folder")):
-        os.mkdir(get("output_folder"))
-    return os.path.join(get("output_folder"), filename)
+    return get("output_folder") / filename
