@@ -2,17 +2,17 @@
 
 Settings
 --------
-analysis_root
+merlin_folder
     The folder containing the output from MERlin.
 
-data_root
+image_folder
     The folder containing the raw image files.
 
-segmentation_root
+segmentation_folder
     The folder containing the segmentation files.
 
-segmentation_name
-    ...
+output_folder
+    The folder to save output to.
 
 minimum_cell_volume
 
@@ -89,11 +89,6 @@ def load(args):
 
 
 def path(filename):
-    global result_path
-    if result_path is None:
-        result_path = os.path.join(
-            get("analysis_root"), get("experiment_name"), get("result_folder")
-        )
-        if not os.path.exists(result_path):
-            os.mkdir(result_path)
-    return os.path.join(result_path, filename)
+    if not os.path.exists(get("output_folder")):
+        os.mkdir(get("output_folder"))
+    return os.path.join(get("output_folder"), filename)
