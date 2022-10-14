@@ -3,6 +3,7 @@ import re
 import glob
 import json
 import pickle
+from pathlib import Path
 from typing import Dict
 
 import numpy as np
@@ -165,6 +166,75 @@ def save_stats(stats, filename) -> None:
 
 def load_stats(filename):
     return json.load(open(filename))
+
+
+class MerlinOutput:
+    """A class for loading results from a MERlin output folder."""
+
+    def __init__(self, folderpath):
+        self.root = Path(folderpath)
+
+    def n_fovs(self):
+        path = self.root / "Decode" / "barcodes"
+        return len(list(path.glob("barcode_data_*.h5")))
+
+    def load_filtered_barcodes(self, fov):
+        """Load detailed barcode metadata from the AdaptiveFilterBarcodes folder."""
+        path = self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
+        return pd.read_hdf(path)
+
+    def load_exported_barcodes(self):
+        """Load the exported barcode table."""
+        path = self.root / "ExportBarcodes" / "barcodes.csv"
+        return pd.read_csv(path)
+
+    def load_drift_transformations(self, fov: int) -> np.ndarray:
+        """Get the drifts calculated between hybridization rounds for the given FOV.
+
+        Returns a numpy array containing scikit-image SimilarityTransform objects.
+        The load_hyb_drifts function can be used instead to convert this to a
+        pandas DataFrame.
+        """
+        possible_dirs = ["FiducialBeadWarp", "FiducialCorrelationWarp"]
+        for dir in possible_dirs:
+            if Path(self.root, dir).exists():
+                path = self.root / dir / "transformations" / f"offsets_{fov}.npy"
+                break
+        else:
+            return None  # TODO: Error message
+        return np.load(path, allow_pickle=True)
+
+    def load_hyb_drifts(self, fov: int) -> pd.DataFrame:
+        """Get the drifts calculated between hybridization rounds for the given FOV.
+
+        The 'X drift' and 'Y drift' columns indicate the translation required to
+        align coordinates in the FOV and hybridization round to the first hybridization
+        round for that FOV. These drifts are calculated by MERlin.
+        """
+        rows = []
+        drifts = self.load_drift_transformations(fov)
+        for bit, drift in enumerate(drifts, start=1):
+            rows.append([fov, bit, drift.params[0][2], drift.params[1][2]])
+        return pd.DataFrame(rows, columns=["FOV", "Bit", "X drift", "Y drift"])
+
+    def load_codebook(self) -> pd.DataFrame:
+        """Get the codebook used for this MERFISH experiment.
+
+        The 'name' and 'id' columns are identical, and both contain the name of the
+        gene or blank barcode encoded by that row. The 'bit1' through 'bitN' columns
+        contain the 0s or 1s of the barcode.
+        """
+        return pd.read_csv(list(self.root.glob("codebook_*.csv"))[0])
+
+    def load_fov_positions(self) -> pd.DataFrame:
+        """Get the global positions of the FOVs.
+
+        The coordinates indicate the top-left corner of the FOV.
+        """
+        path = self.root / "positions.csv"
+        df = pd.read_csv(path, header=None)
+        df.columns = ["x", "y"]
+        return df
 
 
 class DaxFile:
