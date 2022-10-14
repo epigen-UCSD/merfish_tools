@@ -14,7 +14,23 @@ import stats
 Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
 
 
-def get_slice(diff, fovsize=220, get_trim=False):
+def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
+    """Return a slice representing the overlapping region of a FOV on a single axis.
+
+    Parameters
+    ----------
+    diff:
+        The amount of overlap in the global coordinate system.
+    fovsize:
+        The width/length of a FOV in the global coordinate system.
+    get_trim:
+        Return a slice of half the size as the given diff. This is for determining
+        which areas of a pair of overlapping FOVs should be trimmed.
+
+    Returns
+    -------
+    A slice in the FOV coordinate system for the overlap.
+    """
     if diff == 0:
         return slice(None)
     elif diff > 0:
