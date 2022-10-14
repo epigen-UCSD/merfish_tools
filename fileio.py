@@ -6,6 +6,7 @@ import pickle
 from pathlib import Path
 from typing import Dict
 
+import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -110,6 +111,17 @@ class MerlinOutput:
     def n_fovs(self):
         path = self.root / "Decode" / "barcodes"
         return len(list(path.glob("barcode_data_*.h5")))
+
+    def load_raw_barcodes(self, fov):
+        """Load detailed barcode metadata from the Decode folder."""
+        path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
+        return pd.read_hdf(path)
+
+    def count_raw_barcodes(self, fov):
+        """Count the number of barcodes for an fov in the Decode folder."""
+        path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
+        barcodes = h5py.File(path, "r")
+        return len(barcodes["barcodes/table"])
 
     def load_filtered_barcodes(self, fov):
         """Load detailed barcode metadata from the AdaptiveFilterBarcodes folder."""
