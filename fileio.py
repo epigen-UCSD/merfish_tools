@@ -6,116 +6,50 @@ import pickle
 from pathlib import Path
 from typing import Dict
 
+import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
 
-def merlin_barcode_folder(merlin_dir: str) -> str:
-    """Get the path to the folder containing the filtered barcode files."""
-    return os.path.join(merlin_dir, "AdaptiveFilterBarcodes", "barcodes")
+def search_for_mask_file(segmask_dir, fov):
+    patterns = [
+        # Bogdan's segmentation script
+        f"Fov-0*{fov}_seg.pkl",
+        # Cellpose numpy output
+        # We prefer the npy file so we don't need the PIL library
+        f"Conv_zscan_H0_F_0*{fov}_seg.npy",  # Homebuilt microscope filenames
+        f"stack_prestain_0*{fov}_seg.npy",  # MERSCOPE filenames
+        # Try the png cellpose output if the numpy files aren't there
+        f"stack_prestain_0*{fov}_cp_masks.png",
+        f"Conv_zscan_H0_F_0*{fov}_cp_masks.png",
+    ]
+    for filename in Path(segmask_dir).glob(f"*{fov}*"):
+        for pattern in patterns:
+            if re.search(pattern, str(filename)):
+                return filename
+    raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
 
-def merlin_raw_barcode_folder(merlin_dir: str) -> str:
-    return os.path.join(merlin_dir, "Decode", "barcodes")
+def load_mask(segmask_dir: str, fov: int) -> np.ndarray:
+    filename = str(search_for_mask_file(segmask_dir, fov))
 
-
-def merlin_raw_barcode_files(merlin_dir: str) -> list:
-    return glob.glob(
-        os.path.join(merlin_raw_barcode_folder(merlin_dir), "barcode_data_*.h5")
-    )
-
-
-def load_merlin_barcodes(barcode_file: str) -> pd.DataFrame:
-    """Return the barcodes for the given FOV as a pandas DataFrame."""
-    return pd.read_hdf(barcode_file)
-
-
-def merlin_barcode_files(merlin_dir: str) -> list:
-    return glob.glob(
-        os.path.join(merlin_barcode_folder(merlin_dir), "barcode_data_*.h5")
-    )
-
-
-def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
-    bcs = []
-    for bcfile in glob.glob(f"{output_folder}/region_*/detected_transcripts.csv"):
-        bcs.append(pd.read_csv(bcfile, index_col=0))
-        region = bcfile.split("/")[-2].split("_")[1]
-        bcs[-1]["region"] = region
-    return pd.concat(bcs).reset_index().drop(columns="index")
-
-
-def load_hyb_drifts(merlin_dir: str, fov: int) -> pd.DataFrame:
-    """Get the drifts calculated between hybridization rounds for the given FOV.
-
-    The 'X drift' and 'Y drift' columns indicate the translation required to
-    align coordinates in the FOV and hybridization round to the first hybridization
-    round for that FOV. These drifts are calculated by MERlin.
-    """
-    rows = []
-    filename = os.path.join(
-        merlin_dir, "FiducialBeadWarp", "transformations", f"offsets_{fov}.npy"
-    )
-    drifts = np.load(filename, allow_pickle=True)
-    for bit, drift in enumerate(drifts, start=1):
-        rows.append([fov, bit, drift.params[0][2], drift.params[1][2]])
-    return pd.DataFrame(rows, columns=["FOV", "Bit", "X drift", "Y drift"])
-
-
-def load_codebook(merlin_dir: str) -> pd.DataFrame:
-    """Get the codebook used for this MERFISH experiment.
-
-    The 'name' and 'id' columns are identical, and both contain the name of the
-    gene or blank barcode encoded by that row. The 'bit1' through 'bitN' columns
-    contain the 0s or 1s of the barcode.
-    """
-    return pd.read_csv(glob.glob(os.path.join(merlin_dir, "codebook_*.csv"))[0])
-
-
-def load_fov_positions(merlin_dir: str) -> pd.DataFrame:
-    """Get the global positions of the FOVs.
-
-    The coordinates indicate the top-left corner of the FOV.
-    """
-    df = pd.read_csv(os.path.join(merlin_dir, "positions.csv"), header=None)
-    df.columns = ["x", "y"]
-    return df
-
-
-def load_mask(segmask_dir: str, fov: int, pad: int = 3) -> np.ndarray:
-    # Detect type of mask
-    # if glob.glob(os.path.join(segmask_dir, "Conv_zscan*.png")):
-    #    filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:03d}_cp_masks.png")
-    #    return np.asarray(Image.open(filename))
-
-    filename = os.path.join(segmask_dir, f"Fov-{fov:04d}_seg.pkl")
-    if os.path.exists(filename):
+    if filename.endswith(".pkl"):
         pkl = pickle.load(open(filename, "rb"))
         return pkl[0].astype(np.uint32)
-
-    filename = os.path.join(segmask_dir, f"Conv_zscan_H0_F_{fov:0{pad}d}_seg.npy")
-    if os.path.exists(filename):
+    elif filename.endswith(".npy"):
         return np.load(filename, allow_pickle=True).item()["masks"]
-
-    filename = os.path.join(segmask_dir, f"stack_prestain_{fov:0{pad}d}_seg.npy")
-    if os.path.exists(filename):
-        return np.load(filename, allow_pickle=True).item()["masks"]
-
-    filename = os.path.join(segmask_dir, f"stack_prestain_{fov:0{pad}d}_cp_masks.png")
-    if os.path.exists(filename):
+    elif filename.endswith(".png"):
         from PIL import Image
 
         return np.asarray(Image.open(filename))
 
-    raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
+    raise Exception(f"Unknown format for mask {filename}")
 
 
-def load_all_masks(segmask_dir: str, n_fovs: int, pad: int = None) -> list:
-    if pad is None:
-        pad = len(str(n_fovs))
+def load_all_masks(segmask_dir: str, n_fovs: int) -> list:
     return [
-        load_mask(segmask_dir, fov, pad)
+        load_mask(segmask_dir, fov)
         for fov in tqdm(range(n_fovs), desc="Loading cell masks")
     ]
 
@@ -178,9 +112,22 @@ class MerlinOutput:
         path = self.root / "Decode" / "barcodes"
         return len(list(path.glob("barcode_data_*.h5")))
 
+    def load_raw_barcodes(self, fov):
+        """Load detailed barcode metadata from the Decode folder."""
+        path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
+        return pd.read_hdf(path)
+
+    def count_raw_barcodes(self, fov):
+        """Count the number of barcodes for an fov in the Decode folder."""
+        path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
+        barcodes = h5py.File(path, "r")
+        return len(barcodes["barcodes/table"])
+
     def load_filtered_barcodes(self, fov):
         """Load detailed barcode metadata from the AdaptiveFilterBarcodes folder."""
-        path = self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
+        path = (
+            self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
+        )
         return pd.read_hdf(path)
 
     def load_exported_barcodes(self):

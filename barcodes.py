@@ -40,7 +40,6 @@ per_fov_error
 """
 from collections import defaultdict
 
-import h5py
 import faiss
 import numpy as np
 import pandas as pd
@@ -103,8 +102,10 @@ def normalize_codebook(codebook: pd.DataFrame) -> pd.DataFrame:
     return normcodes
 
 
-def set_barcode_stats(merlin_dir: str, bcs: pd.DataFrame, colors: list) -> pd.DataFrame:
-    stats.set("Unfiltered barcode count", count_unfiltered_barcodes(merlin_dir))
+def set_barcode_stats(
+    merlin_result: fileio.MerlinOutput, bcs: pd.DataFrame, colors: list
+) -> pd.DataFrame:
+    stats.set("Unfiltered barcode count", count_unfiltered_barcodes(merlin_result))
     stats.set("Filtered barcode count", len(bcs))
     stats.set(
         "Unfiltered barcodes per FOV",
@@ -147,17 +148,17 @@ def set_barcode_stats(merlin_dir: str, bcs: pd.DataFrame, colors: list) -> pd.Da
     return error
 
 
-def make_table(merlin_dir: str, codebook: pd.DataFrame) -> pd.DataFrame:
+def make_table(
+    merlin_result: fileio.MerlinOutput, codebook: pd.DataFrame
+) -> pd.DataFrame:
     """Create a table of all barcodes with error correction information."""
     codebook = expand_codebook(codebook)
     X = np.ascontiguousarray(normalize_codebook(codebook).to_numpy(), dtype=np.float32)
     neighbors = faiss.IndexFlatL2(X.shape[1])
     neighbors.add(X)
     dfs = []
-    for barcode_file in tqdm(
-        fileio.merlin_barcode_files(merlin_dir), desc="Preparing barcodes"
-    ):
-        barcodes = fileio.load_merlin_barcodes(barcode_file)
+    for fov in tqdm(range(merlin_result.n_fovs()), desc="Preparing barcodes"):
+        barcodes = merlin_result.load_filtered_barcodes(fov)
         dfs.append(process_merlin_barcodes(barcodes, neighbors, codebook))
     df = pd.concat(dfs, ignore_index=True)
     df["status"] = "unprocessed"
@@ -297,14 +298,11 @@ def create_cell_by_gene_table(barcodes, drop_blank=True) -> pd.DataFrame:
     return ctable
 
 
-def count_unfiltered_barcodes(merlin_dir: str) -> int:
+def count_unfiltered_barcodes(merlin_result: fileio.MerlinOutput) -> int:
     """Count the total number of barcodes decoded by MERlin before adaptive filtering."""
     raw_count = 0
-    for file in tqdm(
-        fileio.merlin_raw_barcode_files(merlin_dir), desc="Counting unfiltered barcodes"
-    ):
-        barcodes = h5py.File(file, "r")
-        raw_count += len(barcodes["barcodes/table"])
+    for fov in tqdm(range(merlin_result.n_fovs()), desc="Counting unfiltered barcodes"):
+        raw_count += merlin_result.count_raw_barcodes(fov)
     return raw_count
 
 

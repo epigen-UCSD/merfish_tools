@@ -27,11 +27,11 @@ def create_cell_metadata_table(masks, positions):
     return celldata, cell_links
 
 
-def create_barcode_table(merlin_dir, masks, positions, cell_links):
-    codebook = fileio.load_codebook(merlin_dir)
-    bcs = barcodes.make_table(merlin_dir, codebook)
+def create_barcode_table(merlin_result, masks, positions, cell_links):
+    codebook = merlin_result.load_codebook()
+    bcs = barcodes.make_table(merlin_result, codebook)
     per_bit_error = barcodes.set_barcode_stats(
-        merlin_dir, bcs, config.get("barcode_colors")
+        merlin_result, bcs, config.get("barcode_colors")
     )
     plotting.exact_vs_corrected()
     per_gene_error = barcodes.per_gene_error(bcs)
@@ -58,17 +58,12 @@ def create_barcode_table(merlin_dir, masks, positions, cell_links):
 
 
 def analyze_experiment():
-    exp_name = config.get("experiment_name")
-    merlin_dir = os.path.join(config.get("analysis_root"), exp_name)
-    segmask_dir = os.path.join(
-        config.get("segmentation_root"), exp_name, config.get("segmentation_name")
-    )
     stats.savefile = config.path("stats.json")
-    # data_folder = os.path.join(config.get("data_root"), exp_name)
-    positions = fileio.load_fov_positions(merlin_dir)
+    merlin_result = fileio.MerlinOutput(config.get("merlin_folder"))
+    positions = merlin_result.load_fov_positions()
     n_fovs = len(positions)
     stats.set("FOVs", n_fovs)
-    masks = fileio.load_all_masks(segmask_dir, n_fovs)
+    masks = fileio.load_all_masks(config.get("segmentation_folder"), n_fovs)
 
     # f os.path.exists(config.path("cell_metadata.csv")):
     # celldata = fileio.load_cell_metadata(config.path("cell_metadata.csv"))
@@ -78,7 +73,7 @@ def analyze_experiment():
     fileio.save_cell_links(cell_links, config.path("cell_links.txt"))
     fileio.save_cell_metadata(celldata, config.path("cell_metadata.csv"))
 
-    bcs = create_barcode_table(merlin_dir, masks, positions, cell_links)
+    bcs = create_barcode_table(merlin_result, masks, positions, cell_links)
     fileio.save_barcode_table(bcs, config.path("barcodes.csv"))
 
     counts = barcodes.create_cell_by_gene_table(bcs)
