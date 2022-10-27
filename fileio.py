@@ -1,10 +1,9 @@
-import os
+"""Module for loading and saving files and data related to MERFISH experiments."""
 import re
-import glob
 import json
 import pickle
 from pathlib import Path
-from typing import Dict
+from typing import Optional, Dict, Sequence
 
 import h5py
 import numpy as np
@@ -12,7 +11,8 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def search_for_mask_file(segmask_dir, fov):
+def search_for_mask_file(segmask_dir: str, fov: int) -> Path:
+    """Find the filename for the segmentation mask of the given FOV."""
     patterns = [
         # Bogdan's segmentation script
         f"Fov-0*{fov}_seg.pkl",
@@ -31,15 +31,17 @@ def search_for_mask_file(segmask_dir, fov):
     raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
 
-def load_mask(segmask_dir: str, fov: int) -> np.ndarray:
+def load_mask(segmask_dir: str, fov: int):
+    """Load the segmentation mask for the given FOV."""
     filename = str(search_for_mask_file(segmask_dir, fov))
 
     if filename.endswith(".pkl"):
-        pkl = pickle.load(open(filename, "rb"))
+        with open(filename, "rb") as f:
+            pkl = pickle.load(f)
         return pkl[0].astype(np.uint32)
-    elif filename.endswith(".npy"):
+    if filename.endswith(".npy"):
         return np.load(filename, allow_pickle=True).item()["masks"]
-    elif filename.endswith(".png"):
+    if filename.endswith(".png"):
         from PIL import Image
 
         return np.asarray(Image.open(filename))
@@ -47,44 +49,45 @@ def load_mask(segmask_dir: str, fov: int) -> np.ndarray:
     raise Exception(f"Unknown format for mask {filename}")
 
 
-def load_all_masks(segmask_dir: str, n_fovs: int) -> list:
+def load_all_masks(segmask_dir: str, n_fovs: int):
+    """Load all masks."""
     return [
         load_mask(segmask_dir, fov)
         for fov in tqdm(range(n_fovs), desc="Loading cell masks")
     ]
 
 
-def save_cell_links(links, filename):
-    with open(filename, "w") as f:
+def save_cell_links(links, filename) -> None:
+    with open(filename, "w", encoding="utf8") as f:
         for link in links:
             print(repr(link), file=f)
 
 
 def load_cell_links(filename):
     links = []
-    with open(filename) as f:
+    with open(filename, encoding="utf8") as f:
         for line in f:
             links.append(eval(line))
     return links
 
 
-def save_barcode_table(barcodes, filename):
+def save_barcode_table(barcodes, filename) -> None:
     barcodes.to_csv(filename, index=False)
 
 
-def load_barcode_table(filename):
+def load_barcode_table(filename: str) -> pd.DataFrame:
     return pd.read_csv(filename)
 
 
-def save_cell_metadata(celldata, filename):
+def save_cell_metadata(celldata: pd.DataFrame, filename: str) -> None:
     celldata.to_csv(filename)
 
 
-def load_cell_metadata(filename):
+def load_cell_metadata(filename: str) -> pd.DataFrame:
     return pd.read_csv(filename, index_col=0)
 
 
-def save_cell_by_gene_table(cellbygene, filename):
+def save_cell_by_gene_table(cellbygene, filename) -> None:
     cellbygene.to_csv(filename)
 
 
@@ -94,36 +97,36 @@ def load_cell_by_gene_table(filename):
 
 def save_stats(stats, filename) -> None:
     text = json.dumps(stats, indent=4)
-    with open(filename, "w") as f:
+    with open(filename, "w", encoding="utf8") as f:
         f.write(text)
 
 
 def load_stats(filename):
-    return json.load(open(filename))
+    return json.load(open(filename, encoding="utf8"))
 
 
 class MerlinOutput:
     """A class for loading results from a MERlin output folder."""
 
-    def __init__(self, folderpath):
+    def __init__(self, folderpath: str) -> None:
         self.root = Path(folderpath)
 
-    def n_fovs(self):
+    def n_fovs(self) -> int:
         path = self.root / "Decode" / "barcodes"
         return len(list(path.glob("barcode_data_*.h5")))
 
-    def load_raw_barcodes(self, fov):
+    def load_raw_barcodes(self, fov: int) -> pd.DataFrame:
         """Load detailed barcode metadata from the Decode folder."""
         path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
         return pd.read_hdf(path)
 
-    def count_raw_barcodes(self, fov):
+    def count_raw_barcodes(self, fov: int) -> int:
         """Count the number of barcodes for an fov in the Decode folder."""
         path = self.root / "Decode" / "barcodes" / f"barcode_data_{fov}.h5"
         barcodes = h5py.File(path, "r")
         return len(barcodes["barcodes/table"])
 
-    def load_filtered_barcodes(self, fov):
+    def load_filtered_barcodes(self, fov: int) -> pd.DataFrame:
         """Load detailed barcode metadata from the AdaptiveFilterBarcodes folder."""
         path = (
             self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
@@ -135,21 +138,19 @@ class MerlinOutput:
         path = self.root / "ExportBarcodes" / "barcodes.csv"
         return pd.read_csv(path)
 
-    def load_drift_transformations(self, fov: int) -> np.ndarray:
+    def load_drift_transformations(self, fov: int):
         """Get the drifts calculated between hybridization rounds for the given FOV.
 
         Returns a numpy array containing scikit-image SimilarityTransform objects.
         The load_hyb_drifts function can be used instead to convert this to a
         pandas DataFrame.
         """
-        possible_dirs = ["FiducialBeadWarp", "FiducialCorrelationWarp"]
-        for dir in possible_dirs:
-            if Path(self.root, dir).exists():
-                path = self.root / dir / "transformations" / f"offsets_{fov}.npy"
-                break
-        else:
-            return None  # TODO: Error message
-        return np.load(path, allow_pickle=True)
+        possible_folders = ["FiducialBeadWarp", "FiducialCorrelationWarp"]
+        for folder in possible_folders:
+            if Path(self.root, folder).exists():
+                path = self.root / folder / "transformations" / f"offsets_{fov}.npy"
+                return np.load(path, allow_pickle=True)
+        raise Exception("Could not find drift transformations")
 
     def load_hyb_drifts(self, fov: int) -> pd.DataFrame:
         """Get the drifts calculated between hybridization rounds for the given FOV.
@@ -185,10 +186,13 @@ class MerlinOutput:
 
 
 class DaxFile:
-    def __init__(self, filename, num_channels=None):
+    """Loads data from a DAX image file."""
+
+    def __init__(self, filename: str, num_channels: Optional[int] = None) -> None:
+        """Note: If num_channels=None, the channel and zslice functions will not work."""
         self.filename = filename
         self.num_channels = num_channels
-        self._info = None
+        self._info: Dict[str, int] = {}
         self._memmap = np.memmap(
             filename,
             dtype=np.uint16,
@@ -202,19 +206,18 @@ class DaxFile:
         if self.fileinfo("endian") == 1:
             self._memmap = self._memmap.byteswap()
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: slice) -> np.ndarray:
         return self._memmap[key]
 
-    def logmsg(self, message):
-        return f"Dax file {self.filename} - {message}"
-
-    def fileinfo(self, tag):
-        if self._info is None:
+    def fileinfo(self, tag: str) -> int:
+        """Get a property from the .inf associated file."""
+        if not self._info:
             self.load_fileinfo()
         return self._info[tag]
 
-    def load_fileinfo(self):
-        with open(self.filename.replace(".dax", ".inf")) as f:
+    def load_fileinfo(self) -> None:
+        """Load the .inf associated file and parse the info."""
+        with open(self.filename.replace(".dax", ".inf"), encoding="utf8") as f:
             infodata = f.read()
         self._info = {}
         m = re.search(r"frame dimensions = ([\d]+) x ([\d]+)", infodata)
@@ -225,14 +228,21 @@ class DaxFile:
         m = re.search(r" (big|little) endian", infodata)
         self._info["endian"] = 1 if m.group(1) == "big" else 0
 
-    def channel(self, channel):
+    def channel(self, channel: int) -> np.ndarray:
+        """Return a 3D array of all z-slices of the given channel"""
         return self._memmap[channel :: self.num_channels, :, :]
 
-    def get_entire_image(self):
+    def get_entire_image(self) -> np.ndarray:
         return self._memmap[:, :, :]
 
-    def zslice(self, zslice, channel=None):
-        """If channel is None, return all channels."""
+    def zslice(self, zslice: int, channel: Optional[int] = None) -> np.ndarray:
+        """Return a z-slice of the image.
+
+        If channel is None, returns a 3D array with all channels, otherwise returns
+        a 2D array with the given channel.
+        """
+        if self.num_channels is None:
+            raise Exception("num_channels must be specified to use this function")
         if channel is None:
             return self._memmap[
                 zslice * self.num_channels : zslice * self.num_channels
@@ -240,19 +250,26 @@ class DaxFile:
                 :,
                 :,
             ]
-        else:
-            return self._memmap[channel + zslice * self.num_channels, :, :]
+        return self._memmap[channel + zslice * self.num_channels, :, :]
 
-    def frame(self, frame):
+    def frame(self, frame: int) -> np.ndarray:
+        """Return a 2D array of the given frame."""
         return self._memmap[frame, :, :]
 
-    def max_projection(self, channel=None):
-        if channel is None:
-            return np.max(self._memmap[:, :, :], axis=0)
-        else:
-            return np.max(self._memmap[channel :: self.num_channels, :, :], axis=0)
+    def max_projection(self, channel: int) -> np.ndarray:
+        """Return a max projection across z-slices of the given channel."""
+        return np.max(self._memmap[channel :: self.num_channels, :, :], axis=0)
 
-    def block_range(self, xr=None, yr=None, zr=None, channel=None):
+    def block_range(
+        self,
+        xr: Optional[Sequence[int]] = None,
+        yr: Optional[Sequence[int]] = None,
+        zr: Optional[Sequence[int]] = None,
+        channel: Optional[int] = None,
+    ):
+        """Return a 3D block of the image specific by the given x, y, and z ranges."""
+        if self.num_channels is None:
+            raise Exception("num_channels must be specified to use this function")
         if xr is None:
             xr = (0, self.fileinfo("width"))
         if yr is None:
@@ -277,7 +294,16 @@ class DaxFile:
         xslice = slice(xr[0], xr[1] + 1)
         return self._memmap[zslice, yslice, xslice], (zslice, yslice, xslice)
 
-    def block(self, center, volume, channel=None):
+    def block(
+        self,
+        center: Sequence[int],
+        volume: Sequence[int],
+        channel: Optional[int] = None,
+    ):
+        """Return a 3D block of the image specified by the given center and volume.
+
+        The volume specifies the radius of the block in each dimension.
+        """
         zr = (center[0] - volume[0], center[0] + volume[0])
         yr = (center[1] - volume[1], center[1] + volume[1])
         xr = (center[2] - volume[2], center[2] + volume[2])
