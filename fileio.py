@@ -1,6 +1,7 @@
 """Module for loading and saving files and data related to MERFISH experiments."""
 import re
 import json
+import glob
 import pickle
 from pathlib import Path
 from typing import Optional, Dict, Sequence
@@ -11,7 +12,16 @@ import pandas as pd
 from tqdm import tqdm
 
 
-def search_for_mask_file(segmask_dir: str, fov: int) -> Path:
+def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
+    bcs = []
+    for bcfile in glob.glob(f"{output_folder}/region_*/detected_transcripts.csv"):
+        bcs.append(pd.read_csv(bcfile, index_col=0))
+        region = bcfile.split("/")[-2].split("_")[1]
+        bcs[-1]["region"] = region
+    return pd.concat(bcs).reset_index().drop(columns="index")
+
+
+def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
     """Find the filename for the segmentation mask of the given FOV."""
     patterns = [
         # Bogdan's segmentation script
@@ -24,14 +34,14 @@ def search_for_mask_file(segmask_dir: str, fov: int) -> Path:
         f"stack_prestain_0*{fov}_cp_masks.png",
         f"Conv_zscan_H0_F_0*{fov}_cp_masks.png",
     ]
-    for filename in Path(segmask_dir).glob(f"*{fov}*"):
+    for filename in segmask_dir.glob(f"*{fov}*"):
         for pattern in patterns:
             if re.search(pattern, str(filename)):
                 return filename
     raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
 
 
-def load_mask(segmask_dir: str, fov: int):
+def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
     """Load the segmentation mask for the given FOV."""
     filename = str(search_for_mask_file(segmask_dir, fov))
 
@@ -52,7 +62,7 @@ def load_mask(segmask_dir: str, fov: int):
 def load_all_masks(segmask_dir: str, n_fovs: int):
     """Load all masks."""
     return [
-        load_mask(segmask_dir, fov)
+        load_mask(Path(segmask_dir), fov)
         for fov in tqdm(range(n_fovs), desc="Loading cell masks")
     ]
 
@@ -105,6 +115,13 @@ def load_stats(filename):
     return json.load(open(filename, encoding="utf8"))
 
 
+class MerfishAnalysis:
+    """A class for saving and loading results from this software package."""
+
+    def __init__(self, folderpath: str) -> None:
+        self.root = Path(folderpath)
+        self.root.mkdir(parents=True, exist_ok=True)
+
 class MerlinOutput:
     """A class for loading results from a MERlin output folder."""
 
@@ -112,6 +129,7 @@ class MerlinOutput:
         self.root = Path(folderpath)
 
     def n_fovs(self) -> int:
+        """Return the number of FOVs in the experiment."""
         path = self.root / "Decode" / "barcodes"
         return len(list(path.glob("barcode_data_*.h5")))
 
@@ -133,7 +151,7 @@ class MerlinOutput:
         )
         return pd.read_hdf(path)
 
-    def load_exported_barcodes(self):
+    def load_exported_barcodes(self) -> pd.DataFrame:
         """Load the exported barcode table."""
         path = self.root / "ExportBarcodes" / "barcodes.csv"
         return pd.read_csv(path)

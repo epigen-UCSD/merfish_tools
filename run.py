@@ -60,6 +60,9 @@ def create_barcode_table(merlin_result, masks, positions, cell_links):
 def analyze_experiment():
     stats.savefile = config.path("stats.json")
     merlin_result = fileio.MerlinOutput(config.get("merlin_folder"))
+    output = fileio.MerfishAnalysis(config.get("output_folder"))
+    masks = segmentation.CellSegmentation(config.get("segmentation_folder"), output)
+    
     positions = merlin_result.load_fov_positions()
     n_fovs = len(positions)
     stats.set("FOVs", n_fovs)

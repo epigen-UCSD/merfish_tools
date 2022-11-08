@@ -1,7 +1,9 @@
 import math
+import re
 from functools import partial
 from collections import defaultdict, namedtuple
 from typing import Dict, List, Set
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -10,6 +12,7 @@ from sklearn.neighbors import NearestNeighbors
 
 import config
 import stats
+import fileio
 
 Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
 
@@ -220,3 +223,64 @@ def filter_by_volume(celldata, min_volume, max_factor):
     )
 
     return celldata
+
+class CellSegmentation:
+    def __init__(self, folderpath: str, exp: fileio.MerfishAnalysis):
+        self.path = Path(folderpath)
+        self.exp = exp
+        self.masks = {}
+
+    def __getitem__(self, key: int) -> np.ndarray:
+        if key not in self.masks:
+            self.masks[key] = fileio.load_mask(self.path, key)
+        return self.masks[key]
+
+    def find_overlapping_cells(
+        self, overlaps: List[list]
+    ) -> List[set]:
+        """Identify the cells overlapping FOVs that are the same cell."""
+        pairs = set()
+        for a, b in tqdm(overlaps, desc="Linking cells in overlaps"):
+            # Get portions of masks that overlap
+            if len(self[a.fov].shape) == 2:
+                strip_a = self[a.fov][a.xslice, a.yslice]
+                strip_b = self[b.fov][b.xslice, b.yslice]
+            elif len(self[a.fov].shape) == 3:
+                strip_a = self[a.fov][:, a.xslice, a.yslice]
+                strip_b = self[b.fov][:, b.xslice, b.yslice]
+            newpairs = match_cells_in_overlap(strip_a, strip_b)
+            pairs.update({(a.fov * 10000 + x[0], b.fov * 10000 + x[1]) for x in newpairs})
+        linked_sets = [set([a, b]) for a, b in pairs]
+        # Combine sets until they are all disjoint
+        # e.g., if there is a (1, 2) and (2, 3) set, combine to (1, 2, 3)
+        # This is needed for corners where 4 FOVs overlap
+        changed = True
+        while changed:
+            changed = False
+            new: List[set] = []
+            for a in linked_sets:
+                for b in new:
+                    if not b.isdisjoint(a):
+                        b.update(a)
+                        changed = True
+                        break
+                else:
+                    new.append(a)
+            linked_sets = new
+        return linked_sets
+
+
+    def create_cell_metadata_table(masks, positions):
+        celldata = segmentation.make_metadata_table(masks)
+        overlaps = segmentation.find_fov_overlaps(positions)
+        cell_links = segmentation.find_overlapping_cells(overlaps, masks)
+        segmentation.add_overlap_volume(celldata, overlaps, masks)
+        segmentation.add_linked_volume(celldata, cell_links)
+        plotting.cell_volume_histogram(celldata)
+        celldata["global_x"], celldata["global_y"] = util.fov_to_global_coordinates(
+            celldata["fov_x"], celldata["fov_y"], celldata["fov"], positions
+        )
+        celldata = celldata.drop(
+            ["fov_cell_id", "fov_volume", "overlap_volume", "nonoverlap_volume"], axis=1
+        )
+        return celldata, cell_links
