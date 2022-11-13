@@ -67,34 +67,12 @@ def load_all_masks(segmask_dir: str, n_fovs: int):
     ]
 
 
-def save_cell_links(links, filename) -> None:
-    with open(filename, "w", encoding="utf8") as f:
-        for link in links:
-            print(repr(link), file=f)
-
-
-def load_cell_links(filename):
-    links = []
-    with open(filename, encoding="utf8") as f:
-        for line in f:
-            links.append(eval(line))
-    return links
-
-
 def save_barcode_table(barcodes, filename) -> None:
     barcodes.to_csv(filename, index=False)
 
 
 def load_barcode_table(filename: str) -> pd.DataFrame:
     return pd.read_csv(filename)
-
-
-def save_cell_metadata(celldata: pd.DataFrame, filename: str) -> None:
-    celldata.to_csv(filename)
-
-
-def load_cell_metadata(filename: str) -> pd.DataFrame:
-    return pd.read_csv(filename, index_col=0)
 
 
 def save_cell_by_gene_table(cellbygene, filename) -> None:
@@ -121,6 +99,25 @@ class MerfishAnalysis:
     def __init__(self, folderpath: str) -> None:
         self.root = Path(folderpath)
         self.root.mkdir(parents=True, exist_ok=True)
+
+    def save_cell_metadata(self, celldata: pd.DataFrame) -> None:
+        celldata.to_csv(self.root / "cell_metadata.csv")
+
+    def load_cell_metadata(self) -> pd.DataFrame:
+        return pd.read_csv(self.root / "cell_metadata.csv", index_col=0)
+
+    def save_linked_cells(self, links) -> None:
+        with open(self.root / "linked_cells.txt", "w", encoding="utf8") as f:
+            for link in links:
+                print(repr(link), file=f)
+
+    def load_linked_cells(self):
+        links = []
+        with open(self.root / "linked_cells.txt", encoding="utf8") as f:
+            for line in f:
+                links.append(eval(line))
+        return links
+
 
 class MerlinOutput:
     """A class for loading results from a MERlin output folder."""

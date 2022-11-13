@@ -11,22 +11,6 @@ import cellgene
 import plotting
 
 
-def create_cell_metadata_table(masks, positions):
-    celldata = segmentation.make_metadata_table(masks)
-    overlaps = segmentation.find_fov_overlaps(positions)
-    cell_links = segmentation.find_overlapping_cells(overlaps, masks)
-    segmentation.add_overlap_volume(celldata, overlaps, masks)
-    segmentation.add_linked_volume(celldata, cell_links)
-    plotting.cell_volume_histogram(celldata)
-    celldata["global_x"], celldata["global_y"] = util.fov_to_global_coordinates(
-        celldata["fov_x"], celldata["fov_y"], celldata["fov"], positions
-    )
-    celldata = celldata.drop(
-        ["fov_cell_id", "fov_volume", "overlap_volume", "nonoverlap_volume"], axis=1
-    )
-    return celldata, cell_links
-
-
 def create_barcode_table(merlin_result, masks, positions, cell_links):
     codebook = merlin_result.load_codebook()
     bcs = barcodes.make_table(merlin_result, codebook)
@@ -61,20 +45,22 @@ def analyze_experiment():
     stats.savefile = config.path("stats.json")
     merlin_result = fileio.MerlinOutput(config.get("merlin_folder"))
     output = fileio.MerfishAnalysis(config.get("output_folder"))
-    masks = segmentation.CellSegmentation(config.get("segmentation_folder"), output)
-    
+    masks = segmentation.CellSegmentation(
+        config.get("segmentation_folder"),
+        output=output,
+        positions=merlin_result.load_fov_positions(),
+    )
+
     positions = merlin_result.load_fov_positions()
     n_fovs = len(positions)
     stats.set("FOVs", n_fovs)
-    masks = fileio.load_all_masks(config.get("segmentation_folder"), n_fovs)
 
     # f os.path.exists(config.path("cell_metadata.csv")):
     # celldata = fileio.load_cell_metadata(config.path("cell_metadata.csv"))
     # cell_links = fileio.load_cell_links(config.path("cell_links.txt"))
     # else:
-    celldata, cell_links = create_cell_metadata_table(masks, positions)
-    fileio.save_cell_links(cell_links, config.path("cell_links.txt"))
-    fileio.save_cell_metadata(celldata, config.path("cell_metadata.csv"))
+    celldata = masks.metadata
+    cell_links = masks.linked_cells
 
     bcs = create_barcode_table(merlin_result, masks, positions, cell_links)
     fileio.save_barcode_table(bcs, config.path("barcodes.csv"))

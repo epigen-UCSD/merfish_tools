@@ -3,21 +3,6 @@
 This module should generally not be interacted with directly, but rather through an instance of
 the MerfishExperiment class (see experiment.py).
 """
-
-import os
-import json
-import random
-from functools import cached_property
-
-import h5py
-import pandas as pd
-import numpy as np
-from tqdm import tqdm
-from scipy.linalg import norm
-from scipy.stats import pearsonr
-
-import config
-import plotting
 import fileio
 
 stats = {}
