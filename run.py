@@ -20,13 +20,14 @@ def create_barcode_table(merlin_result, masks, positions, cell_links):
     plotting.exact_vs_corrected()
     per_gene_error = barcodes.per_gene_error(bcs)
     plotting.confidence_ratios(per_gene_error)
-    plotting.per_bit_error_bar(per_bit_error, config.get("barcode_colors"))
-    plotting.per_bit_error_line(per_bit_error, config.get("barcode_colors"))
-    plotting.per_hyb_error(per_bit_error)
-    plotting.per_color_error(per_bit_error, config.get("barcode_colors"))
-    per_fov_error = barcodes.per_fov_error(bcs)
-    plotting.fov_error_bar(per_fov_error)
-    plotting.fov_error_spatial(per_fov_error, positions)
+    if per_bit_error is not None:
+        plotting.per_bit_error_bar(per_bit_error, config.get("barcode_colors"))
+        plotting.per_bit_error_line(per_bit_error, config.get("barcode_colors"))
+        plotting.per_hyb_error(per_bit_error)
+        plotting.per_color_error(per_bit_error, config.get("barcode_colors"))
+    #per_fov_error = barcodes.per_fov_error(bcs)
+    #plotting.fov_error_bar(per_fov_error)
+    #plotting.fov_error_spatial(per_fov_error, positions)
     # plotting.spatial_transcripts_per_fov(bcs, positions)
     barcodes.mark_barcodes_in_overlaps(
         bcs, segmentation.find_fov_overlaps(positions, get_trim=True)
@@ -61,6 +62,7 @@ def analyze_experiment():
     # else:
     celldata = masks.metadata
     cell_links = masks.linked_cells
+    stats.set("Segmented cells", len(celldata))
 
     bcs = create_barcode_table(merlin_result, masks, positions, cell_links)
     fileio.save_barcode_table(bcs, config.path("barcodes.csv"))

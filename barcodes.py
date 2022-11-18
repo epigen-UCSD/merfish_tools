@@ -136,16 +136,19 @@ def set_barcode_stats(
         "1->0 error rate",
         len(bcs[bcs["error_type"] == -1]) / stats.get("Filtered barcode count"),
     )
-    error = per_bit_error(bcs, colors)
-    stats.set(
-        "Average per-bit 0->1 error rate",
-        error[error["Error type"] == "0->1"]["Error rate"].mean(),
-    )
-    stats.set(
-        "Average per-bit 1->0 error rate",
-        error[error["Error type"] == "1->0"]["Error rate"].mean(),
-    )
-    return error
+    try:
+        error = per_bit_error(bcs, colors)
+        stats.set(
+            "Average per-bit 0->1 error rate",
+            error[error["Error type"] == "0->1"]["Error rate"].mean(),
+        )
+        stats.set(
+            "Average per-bit 1->0 error rate",
+            error[error["Error type"] == "1->0"]["Error rate"].mean(),
+        )
+        return error
+    except ValueError:  # Temporary hack to avoid issue
+        return None
 
 
 def make_table(
