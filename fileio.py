@@ -93,6 +93,23 @@ def load_stats(filename):
     return json.load(open(filename, encoding="utf8"))
 
 
+def _parse_list(inputString: str, dtype=float):
+    if "," in inputString:
+        return np.fromstring(inputString.strip("[] "), dtype=dtype, sep=",")
+    else:
+        return np.fromstring(inputString.strip("[] "), dtype=dtype, sep=" ")
+
+
+def _parse_int_list(inputString: str):
+    return _parse_list(inputString, dtype=int)
+
+
+def load_data_organization(filename: str) -> pd.DataFrame:
+    return pd.read_csv(
+        filename, converters={"frame": _parse_int_list, "zPos": _parse_list}
+    )
+
+
 class MerfishAnalysis:
     """A class for saving and loading results from this software package."""
 
@@ -198,6 +215,74 @@ class MerlinOutput:
         df = pd.read_csv(path, header=None)
         df.columns = ["x", "y"]
         return df
+
+    def load_data_organization(self) -> pd.DataFrame:
+        """Load the data organization table."""
+        path = self.root / "dataorganization.csv"
+        return load_data_organization(path)
+
+
+class ImageDataset:
+    def __init__(self, folderpath: str, data_organization: str = None) -> None:
+        self.root = Path(folderpath)
+        self.filenames = list(self.root.glob("*.dax"))
+        if isinstance(data_organization, str):
+            self.data_organization = load_data_organization(data_organization)
+        elif isinstance(data_organization, pd.DataFrame):
+            self.data_organization = data_organization
+        if self.data_organization is not None:
+            self.regex = re.compile(self.data_organization.iloc[0]["imageRegExp"])
+
+    def filename(self, hyb, fov) -> Path:
+        """Locates the filename for the image of the given hyb round and FOV."""
+        for file in self.filenames:
+            match = self.regex.search(str(file))
+            if match is not None:
+                props = match.groupdict()
+                if int(props["imagingRound"]) == hyb and int(props["fov"]) == fov:
+                    return file
+        return None
+
+    def load_image(
+        self,
+        fov: int,
+        zslice: int = None,
+        bit: int = None,
+        hyb: int = None,
+        channel: str = None,
+        max_projection: bool = False,
+    ) -> np.ndarray:
+        """Load an image from the dataset.
+
+        The image to load can be specified by passing either the bit or the
+        hybridization round and color channel. If the zslice to be loaded is
+        not specified, then either a 3D image containing all z-slices, or
+        a 2D max projection along the z-axis is returned, depending on the
+        max_projection parameter.
+        """
+        if hyb is not None:
+            filename = self.filename(hyb, fov)
+            if isinstance(channel, str):
+                frames = self.data_organization[
+                    (self.data_organization["color"] == channel)
+                    & (self.data_organization["imagingRound"] == hyb)
+                ].iloc[0]["frame"]
+        elif bit is not None:
+            bitrow = self.data_organization[
+                self.data_organization["bitNumber"] == bit
+            ].iloc[0]
+            filename = self.filename(bitrow["imagingRound"], fov)
+            frames = bitrow["frame"]
+        else:
+            raise Exception("Must specify hyb or bit")
+
+        dax = DaxFile(str(filename))
+        if zslice is not None:
+            return dax.frame(frames[zslice])
+        imgstack = np.array([dax.frame(frame) for frame in frames])
+        if max_projection:
+            return imgstack.max(axis=0)
+        return imgstack
 
 
 class DaxFile:
