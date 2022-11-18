@@ -6,9 +6,9 @@ import scanpy as sc
 from scipy.stats import zscore, pearsonr
 from matplotlib.ticker import FuncFormatter
 
-import config
-import stats
-import util
+from . import config
+from . import stats
+from . import util
 
 pctformatter = FuncFormatter(lambda x, pos: f"{x*100:.1f}%")
 

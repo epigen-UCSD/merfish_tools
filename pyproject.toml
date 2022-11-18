@@ -13,7 +13,9 @@ dependencies = [
     "anndata",
     "tqdm",
     "scikit-learn",
+    "scikit-image>=0.18",
     "scipy",
     "faiss-cpu",
-    "h5py"
+    "h5py",
+    "cupy"
 ]

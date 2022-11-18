@@ -10,7 +10,7 @@ from sklearn.neighbors import NearestNeighbors
 from sklearn.cluster import KMeans
 import pandas as pd
 
-import stats
+from . import stats
 
 
 def create_scanpy_object(cellgene, celldata, positions):

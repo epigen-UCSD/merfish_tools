@@ -3,7 +3,7 @@
 This module should generally not be interacted with directly, but rather through an instance of
 the MerfishExperiment class (see experiment.py).
 """
-import fileio
+from . import fileio
 
 stats = {}
 savefile = None

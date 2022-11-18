@@ -46,9 +46,9 @@ import pandas as pd
 from tqdm import tqdm
 from scipy.linalg import norm
 
-import fileio
-import stats
-import config
+from . import fileio
+from . import stats
+from . import config
 
 
 def process_merlin_barcodes(

@@ -21,7 +21,7 @@ from scipy import signal
 from cupyx.scipy.fft import fftn, ifftn, fftfreq
 from scipy.stats import zscore
 
-import fileio
+from . import fileio
 
 log = logging.getLogger(__name__)
 rng = np.random.default_rng(seed=1047)
