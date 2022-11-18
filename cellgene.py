@@ -6,6 +6,9 @@ import scanpy as sc
 import numpy as np
 from anndata import AnnData
 from tqdm import tqdm
+from sklearn.neighbors import NearestNeighbors
+from sklearn.cluster import KMeans
+import pandas as pd
 
 import stats
 
@@ -90,3 +93,22 @@ def cluster_cells(adata, n_pcs):
     sc.tl.umap(adata, init_pos="paga", min_dist=0.3, spread=1)
     print("done")
     stats.set("Number of clusters", len(np.unique(adata.obs["leiden"])))
+
+
+def find_cell_communities(adata: sc.AnnData, labels: str, radius: int = 150) -> None:
+    """Group cells based on the cell types present in their vicinity."""
+    ngraph = NearestNeighbors(radius=radius)
+    ngraph.fit(adata.obsm["X_spatial"])
+    _, indexes = ngraph.radius_neighbors(adata.obsm["X_spatial"])
+    res = [
+        pd.DataFrame(adata[cells, :].obs[labels].value_counts())
+        for cells in tqdm(indexes)
+    ]
+    neighbors_table = pd.concat(res, axis=1)
+    neighbors_table.columns = adata.obs_names
+    neighbors_table = neighbors_table.fillna(0)
+    adata.obsm["X_neighborhood"] = (
+        neighbors_table / neighbors_table.sum(axis=0)
+    ).T.to_numpy()
+    kmeans = KMeans().fit(adata.obsm["X_neighborhood"])
+    adata.obs["community"] = kmeans.labels_.astype(str)
