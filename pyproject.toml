@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "merfish-tools"
+version = "alpha"
+dependencies = [
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "scanpy",
+    "anndata",
+    "tqdm",
+    "scikit-learn",
+    "scipy",
+    "faiss",
+    "h5py"
+]
