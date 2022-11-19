@@ -1,3 +1,4 @@
+"""Provides the CellSegmentation class for working with segmentation masks."""
 import math
 from functools import partial, cached_property
 from collections import defaultdict, namedtuple
@@ -18,21 +19,13 @@ Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
 
 
 def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
-    """Return a slice representing the overlapping region of a FOV on a single axis.
+    """Get a slice for the region of an image overlapped by another FOV.
 
-    Parameters
-    ----------
-    diff:
-        The amount of overlap in the global coordinate system.
-    fovsize:
-        The width/length of a FOV in the global coordinate system.
-    get_trim:
-        Return a slice of half the size as the given diff. This is for determining
-        which areas of a pair of overlapping FOVs should be trimmed.
-
-    Returns
-    -------
-    A slice in the FOV coordinate system for the overlap.
+    :param diff: The amount of overlap in the global coordinate system.
+    :param fovsize: The width/length of a FOV in the global coordinate system, defaults to 220.
+    :param get_trim: If True, return the half of the overlap closest to the edge. This is for
+        determining in which region the barcodes should be trimmed to avoid duplicates.
+    :return: A slice in the FOV coordinate system for the overlap.
     """
     if int(diff) == 0:
         return slice(None)
@@ -78,6 +71,15 @@ def find_fov_overlaps(
 
 
 def match_cells_in_overlap(strip_a: np.ndarray, strip_b: np.ndarray) -> Set[tuple]:
+    """Find cells in overlapping regions of two FOVs that are the same cells.
+
+    :param strip_a: The overlapping region of the segmentation mask from one FOV.
+    :param strip_b: The overlapping region of the segmentation mask from another FOV.
+    :return: A set of pairs of ints (tuples) representing the mask labels from each mask
+        that are the same cell. For example, the tuple `(23, 45)` means mask label 23 from
+        the mask given by `strip_a` is the same cell as mask label 45 in the mask given by
+        `strip_b`.
+    """
     # Pair up pixels in overlap regions
     # This could be more precise by drift correcting between the two FOVs
     p = np.array([strip_a.flatten(), strip_b.flatten()]).T
@@ -124,18 +126,36 @@ def filter_by_volume(celldata, min_volume, max_factor):
 
 
 class CellSegmentation:
+    """
+    A collection of segmentation masks from all FOVs.
+    """
     def __init__(
         self,
         folderpath: str,
         output: fileio.MerfishAnalysis = None,
         positions: pd.DataFrame = None,
     ) -> None:
+        """Initialize the instance.
+
+        :param folderpath: The path to the folder containing the masks.
+        :param output: The `MerfishAnalysis` object for saving and loading results.
+        :param positions: The positions table representing the global coordinates of
+            each FOV. See `fileio.MerlinOutput` for loading this file.
+        """
         self.path = Path(folderpath)
         self.output = output
         self.positions = positions
         self.masks = {}
 
     def __getitem__(self, key: int) -> np.ndarray:
+        """Return the mask for the given FOV.
+
+        The mask will be loaded into memory the first time it is requested, then
+        stored for future requests.
+
+        :param key: The FOV to return the mask for.
+        :return: The segmentation mask.
+        """
         if not hasattr(self, "masks"):
             self.masks = {}
         if key not in self.masks:
@@ -156,6 +176,15 @@ class CellSegmentation:
 
     @cached_property
     def metadata(self) -> pd.DataFrame:
+        """Get the cell metadata table.
+
+        When the metadata table is accessed for the first time, it will first attempt
+        to load a saved metadata table if `output` was given. If the file doesn't exist,
+        the metadata table will be created and stored in memory. If `output` was given,
+        the table will be saved to disk so it can be loaded in the future.
+
+        :return: The cell metadata table.
+        """
         # Try to load existing table
         if self.output is not None:
             try:
