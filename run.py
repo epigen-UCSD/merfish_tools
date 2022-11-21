@@ -1,14 +1,14 @@
 import argparse
 import os
 
-import config
-import fileio
-import segmentation
-import util
-import stats
-import barcodes
-import cellgene
-import plotting
+from mftools import config
+from mftools import fileio
+from mftools import segmentation
+from mftools import util
+from mftools import stats
+from mftools import barcodes
+from mftools import cellgene
+from mftools import plotting
 
 
 def create_barcode_table(merlin_result, masks, positions, cell_links):
