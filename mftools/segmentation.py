@@ -5,10 +5,12 @@ from collections import defaultdict, namedtuple
 from typing import List, Set
 from pathlib import Path
 
+from cellpose import models as cpmodels
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from sklearn.neighbors import NearestNeighbors
+from skimage.segmentation import expand_labels
 
 from . import config
 from . import stats
@@ -126,14 +128,14 @@ def filter_by_volume(celldata, min_volume, max_factor):
 
 
 class CellSegmentation:
-    """
-    A collection of segmentation masks from all FOVs.
-    """
+    """A collection of segmentation masks from all FOVs."""
+
     def __init__(
         self,
-        folderpath: str,
+        mask_folder: str,
         output: fileio.MerfishAnalysis = None,
         positions: pd.DataFrame = None,
+        images: fileio.ImageDataset = None,
     ) -> None:
         """Initialize the instance.
 
@@ -142,16 +144,20 @@ class CellSegmentation:
         :param positions: The positions table representing the global coordinates of
             each FOV. See `fileio.MerlinOutput` for loading this file.
         """
-        self.path = Path(folderpath)
+        self.path = Path(mask_folder)
         self.output = output
         self.positions = positions
+        self.images = images
+        if images is not None:
+            self.model = cpmodels.Cellpose(gpu=True, model_type="cyto2")
         self.masks = {}
 
     def __getitem__(self, key: int) -> np.ndarray:
         """Return the mask for the given FOV.
 
         The mask will be loaded into memory the first time it is requested, then
-        stored for future requests.
+        stored for future requests. If the mask does not exist and an ImageDataset
+        was given at construction, the segmentation mask will be created and saved.
 
         :param key: The FOV to return the mask for.
         :return: The segmentation mask.
@@ -159,7 +165,14 @@ class CellSegmentation:
         if not hasattr(self, "masks"):
             self.masks = {}
         if key not in self.masks:
-            self.masks[key] = fileio.load_mask(self.path, key)
+            try:
+                self.masks[key] = fileio.load_mask(self.path, key)
+            except FileNotFoundError:
+                segim, mask, flow, diams = self.segment_fov(key)
+                filename = self.path / self.images.filename(0, key).parts[-1]
+                fileio.save_mask(filename, (segim, mask, flow, diams))
+                self.masks[key] = mask
+                return mask
         return self.masks[key]
 
     def __iter__(self):
@@ -262,14 +275,27 @@ class CellSegmentation:
             linked_sets = new
         return linked_sets
 
+    def segment_fov(self, fov: int):
+        segim = self.images.load_image(fov=fov, channel="segmentation")
+        mask, flow, _, diams = self.model.eval(
+            segim,
+            channels=[0, 0],
+            diameter=80,
+            cellprob_threshold=-4,
+            flow_threshold=1.25,
+        )
+        for cellid, size in zip(*np.unique(mask, return_counts=True)):
+            if size < 2500:
+                mask[mask == cellid] = 0
+        mask = expand_labels(mask, 3)
+        return segim, mask, flow, diams
+
     def make_metadata_table(self) -> pd.DataFrame:
         def get_centers(inds):
             return np.mean(np.unravel_index(inds, shape=self[0].shape), axis=1)
 
         rows = []
-        for fov, mask in tqdm(
-            list(enumerate(self)), desc="Getting cell volumes and centers"
-        ):
+        for fov, mask in tqdm(enumerate(self), desc="Getting cell volumes and centers"):
             # Some numpy tricks here. Confusing but fast.
             flat = mask.flatten()
             cells, split_inds, volumes = np.unique(

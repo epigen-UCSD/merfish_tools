@@ -17,5 +17,6 @@ dependencies = [
     "scipy",
     "faiss-cpu",
     "h5py",
+    "cellpose",
     "cupy"
 ]

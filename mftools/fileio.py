@@ -10,6 +10,7 @@ import h5py
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from cellpose import io as cpio
 
 
 def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
@@ -38,7 +39,7 @@ def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
         for pattern in patterns:
             if re.search(pattern, str(filename)):
                 return filename
-    raise Exception(f"No mask found in {segmask_dir} for FOV {fov}")
+    raise FileNotFoundError(f"No mask found in {segmask_dir} for FOV {fov}")
 
 
 def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
@@ -65,6 +66,11 @@ def load_all_masks(segmask_dir: str, n_fovs: int):
         load_mask(Path(segmask_dir), fov)
         for fov in tqdm(range(n_fovs), desc="Loading cell masks")
     ]
+
+
+def save_mask(filename: Path, cellpose_data: tuple) -> None:
+    filename.parents[0].mkdir(parents=True, exist_ok=True)
+    cpio.masks_flows_to_seg(*cellpose_data, filename, [0, 0])
 
 
 def save_barcode_table(barcodes, filename) -> None:
@@ -223,15 +229,18 @@ class MerlinOutput:
 
 
 class ImageDataset:
-    def __init__(self, folderpath: str, data_organization: str = None) -> None:
+    def __init__(
+        self, folderpath: str, data_organization: str = None, segdict: dict = None
+    ) -> None:
         self.root = Path(folderpath)
         self.filenames = list(self.root.glob("*.dax"))
         if isinstance(data_organization, str):
             self.data_organization = load_data_organization(data_organization)
         elif isinstance(data_organization, pd.DataFrame):
             self.data_organization = data_organization
-        if self.data_organization is not None:
+        if data_organization is not None:
             self.regex = re.compile(self.data_organization.iloc[0]["imageRegExp"])
+        self.segdict = segdict
 
     def filename(self, hyb, fov) -> Path:
         """Locates the filename for the image of the given hyb round and FOV."""
@@ -273,6 +282,10 @@ class ImageDataset:
             ].iloc[0]
             filename = self.filename(bitrow["imagingRound"], fov)
             frames = bitrow["frame"]
+        elif channel == "segmentation":
+            filename = self.filename(self.segdict["hyb"], fov)
+            zslice = 0
+            frames = [self.segdict["frame"]]
         else:
             raise Exception("Must specify hyb or bit")
 
