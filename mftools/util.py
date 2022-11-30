@@ -15,12 +15,6 @@ def calculate_drift(img1, img2):
     return df.median()
 
 
-def fov_to_global_coordinates(x, y, fov, positions):
-    global_x = 220 * x / 2048 + np.array(positions.loc[fov]["y"])
-    global_y = 220 * y / 2048 - np.array(positions.loc[fov]["x"])
-    return global_x, global_y
-
-
 def reference_gene_counts(filename: str) -> dict:
     refcounts = pd.read_csv(filename)
     refcounts = dict(zip(refcounts["geneName"], np.log10(refcounts["counts"])))

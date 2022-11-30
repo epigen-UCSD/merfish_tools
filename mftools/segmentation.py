@@ -1,7 +1,6 @@
 """Provides the CellSegmentation class for working with segmentation masks."""
-import math
-from functools import partial, cached_property
-from collections import defaultdict, namedtuple
+from functools import cached_property
+from collections import defaultdict
 from typing import List, Set
 from pathlib import Path
 
@@ -9,67 +8,12 @@ from cellpose import models as cpmodels
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from sklearn.neighbors import NearestNeighbors
 from skimage.segmentation import expand_labels
 
 from . import config
 from . import stats
 from . import fileio
-from . import util
-
-Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
-
-
-def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
-    """Get a slice for the region of an image overlapped by another FOV.
-
-    :param diff: The amount of overlap in the global coordinate system.
-    :param fovsize: The width/length of a FOV in the global coordinate system, defaults to 220.
-    :param get_trim: If True, return the half of the overlap closest to the edge. This is for
-        determining in which region the barcodes should be trimmed to avoid duplicates.
-    :return: A slice in the FOV coordinate system for the overlap.
-    """
-    if int(diff) == 0:
-        return slice(None)
-    elif diff > 0:
-        if get_trim:
-            diff = fovsize - ((fovsize - diff) / 2)
-        overlap = (2048 * diff / fovsize) / config.get("scale")
-        return slice(math.trunc(overlap), None)
-    else:
-        if get_trim:
-            diff = -fovsize - ((-fovsize - diff) / 2)
-        overlap = (2048 * diff / fovsize) / config.get("scale")
-        return slice(None, math.trunc(overlap))
-
-
-def find_fov_overlaps(
-    positions: pd.DataFrame, fovsize: int = 220, get_trim: bool = False
-) -> List[list]:
-    """Identify overlaps between FOVs."""
-    nn = NearestNeighbors()
-    nn = nn.fit(positions)
-    res = nn.radius_neighbors(
-        positions, radius=fovsize, return_distance=True, sort_results=True
-    )
-    overlaps = []
-    pairs = set()
-    for i, (dists, fovs) in enumerate(zip(*res)):
-        i = positions.iloc[i].name
-        for dist, fov in zip(dists, fovs):
-            fov = positions.iloc[fov].name
-            if dist == 0 or (i, fov) in pairs:
-                continue
-            pairs.update([(i, fov), (fov, i)])
-            diff = positions.loc[i] - positions.loc[fov]
-            _get_slice = partial(get_slice, fovsize=fovsize, get_trim=get_trim)
-            overlaps.append(
-                [
-                    Overlap(i, _get_slice(diff[0]), _get_slice(-diff[1])),
-                    Overlap(fov, _get_slice(-diff[0]), _get_slice(diff[1])),
-                ]
-            )
-    return overlaps
+from . import images
 
 
 def match_cells_in_overlap(strip_a: np.ndarray, strip_b: np.ndarray) -> Set[tuple]:
@@ -113,16 +57,12 @@ def match_cells_in_overlap(strip_a: np.ndarray, strip_b: np.ndarray) -> Set[tupl
 def filter_by_volume(celldata, min_volume, max_factor):
     # Remove small cells
     celldata.loc[celldata["volume"] < min_volume, "status"] = "Too small"
-    print(
-        f"Tagged {len(celldata[celldata['status'] == 'Too small'])} cells with volume < {min_volume} pixels"
-    )
+    print(f"Tagged {len(celldata[celldata['status'] == 'Too small'])} cells with volume < {min_volume} pixels")
 
     # Remove large cells
     median = np.median(celldata[celldata["status"] != "Too small"]["volume"])
     celldata.loc[celldata["volume"] > median * max_factor, "status"] = "Too big"
-    print(
-        f"Tagged {len(celldata[celldata['status'] == 'Too big'])} cells with volume > {median*max_factor} pixels"
-    )
+    print(f"Tagged {len(celldata[celldata['status'] == 'Too big'])} cells with volume > {median*max_factor} pixels")
 
     return celldata
 
@@ -135,7 +75,7 @@ class CellSegmentation:
         mask_folder: str,
         output: fileio.MerfishAnalysis = None,
         positions: pd.DataFrame = None,
-        images: fileio.ImageDataset = None,
+        imagedata: fileio.ImageDataset = None,
     ) -> None:
         """Initialize the instance.
 
@@ -146,9 +86,9 @@ class CellSegmentation:
         """
         self.path = Path(mask_folder)
         self.output = output
-        self.positions = positions
-        self.images = images
-        if images is not None:
+        self.positions = images.FOVPositions(positions=positions)
+        self.imagedata = imagedata
+        if imagedata is not None:
             self.model = cpmodels.Cellpose(gpu=True, model_type="cyto2")
         self.masks = {}
 
@@ -169,7 +109,7 @@ class CellSegmentation:
                 self.masks[key] = fileio.load_mask(self.path, key)
             except FileNotFoundError:
                 segim, mask, flow, diams = self.segment_fov(key)
-                filename = self.path / self.images.filename(0, key).parts[-1]
+                filename = self.path / self.imagedata.filename(0, key).parts[-1]
                 fileio.save_mask(filename, (segim, mask, flow, diams))
                 self.masks[key] = mask
                 return mask
@@ -207,8 +147,8 @@ class CellSegmentation:
 
         table = self.make_metadata_table()
         if self.positions is not None:
-            table["global_x"], table["global_y"] = util.fov_to_global_coordinates(
-                table["fov_x"], table["fov_y"], table["fov"], self.positions
+            table["global_x"], table["global_y"] = self.positions.local_to_global_coordinates(
+                table["fov_x"], table["fov_y"], table["fov"]
             )
             table["overlap_volume"] = self.get_overlap_volume()
             self.__add_linked_volume(table)
@@ -237,14 +177,10 @@ class CellSegmentation:
             self.output.save_linked_cells(cell_links)
         return cell_links
 
-    @cached_property
-    def fov_overlaps(self):
-        return find_fov_overlaps(self.positions)
-
     def find_overlapping_cells(self) -> List[set]:
         """Identify the cells overlapping FOVs that are the same cell."""
         pairs = set()
-        for a, b in tqdm(self.fov_overlaps, desc="Linking cells in overlaps"):
+        for a, b in tqdm(self.positions.overlaps, desc="Linking cells in overlaps"):
             # Get portions of masks that overlap
             if len(self[a.fov].shape) == 2:
                 strip_a = self[a.fov][a.xslice, a.yslice]
@@ -253,9 +189,7 @@ class CellSegmentation:
                 strip_a = self[a.fov][:, a.xslice, a.yslice]
                 strip_b = self[b.fov][:, b.xslice, b.yslice]
             newpairs = match_cells_in_overlap(strip_a, strip_b)
-            pairs.update(
-                {(a.fov * 10000 + x[0], b.fov * 10000 + x[1]) for x in newpairs}
-            )
+            pairs.update({(a.fov * 10000 + x[0], b.fov * 10000 + x[1]) for x in newpairs})
         linked_sets = [set([a, b]) for a, b in pairs]
         # Combine sets until they are all disjoint
         # e.g., if there is a (1, 2) and (2, 3) set, combine to (1, 2, 3)
@@ -276,7 +210,7 @@ class CellSegmentation:
         return linked_sets
 
     def segment_fov(self, fov: int):
-        segim = self.images.load_image(fov=fov, channel="segmentation")
+        segim = self.imagedata.load_image(fov=fov, channel="segmentation")
         mask, flow, _, diams = self.model.eval(
             segim,
             channels=[0, 0],
@@ -298,9 +232,7 @@ class CellSegmentation:
         for fov, mask in tqdm(enumerate(self), desc="Getting cell volumes and centers"):
             # Some numpy tricks here. Confusing but fast.
             flat = mask.flatten()
-            cells, split_inds, volumes = np.unique(
-                np.sort(flat), return_index=True, return_counts=True
-            )
+            cells, split_inds, volumes = np.unique(np.sort(flat), return_index=True, return_counts=True)
             cell_inds = np.split(flat.argsort(), split_inds)[2:]
             centers = list(map(get_centers, cell_inds))
             if len(centers) > 0:
@@ -332,18 +264,14 @@ class CellSegmentation:
 
     def get_overlap_volume(self) -> None:
         fov_overlaps = defaultdict(list)
-        for a, b in self.fov_overlaps:
+        for a, b in self.positions.overlaps:
             fov_overlaps[a.fov].append(a)
             fov_overlaps[b.fov].append(b)
         cells = []
         volumes = []
-        for fov, fov_over in tqdm(
-            fov_overlaps.items(), desc="Calculating overlap volumes"
-        ):
+        for fov, fov_over in tqdm(fov_overlaps.items(), desc="Calculating overlap volumes"):
             for overlap in fov_over:
-                counts = np.unique(
-                    self[fov][overlap.xslice, overlap.yslice], return_counts=True
-                )
+                counts = np.unique(self[fov][overlap.xslice, overlap.yslice], return_counts=True)
                 cells.extend(counts[0] + fov * 10000)
                 volumes.extend(counts[1])
         df = pd.DataFrame(np.array([cells, volumes]).T, columns=["cell", "volume"])

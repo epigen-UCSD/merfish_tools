@@ -62,10 +62,7 @@ def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
 
 def load_all_masks(segmask_dir: str, n_fovs: int):
     """Load all masks."""
-    return [
-        load_mask(Path(segmask_dir), fov)
-        for fov in tqdm(range(n_fovs), desc="Loading cell masks")
-    ]
+    return [load_mask(Path(segmask_dir), fov) for fov in tqdm(range(n_fovs), desc="Loading cell masks")]
 
 
 def save_mask(filename: Path, cellpose_data: tuple) -> None:
@@ -111,9 +108,17 @@ def _parse_int_list(inputString: str):
 
 
 def load_data_organization(filename: str) -> pd.DataFrame:
-    return pd.read_csv(
-        filename, converters={"frame": _parse_int_list, "zPos": _parse_list}
-    )
+    return pd.read_csv(filename, converters={"frame": _parse_int_list, "zPos": _parse_list})
+
+
+def load_fov_positions(path: Path) -> pd.DataFrame:
+    """Get the global positions of the FOVs.
+
+    The coordinates indicate the top-left corner of the FOV.
+    """
+    df = pd.read_csv(path, header=None)
+    df.columns = ["x", "y"]
+    return df
 
 
 class MerfishAnalysis:
@@ -166,9 +171,7 @@ class MerlinOutput:
 
     def load_filtered_barcodes(self, fov: int) -> pd.DataFrame:
         """Load detailed barcode metadata from the AdaptiveFilterBarcodes folder."""
-        path = (
-            self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
-        )
+        path = self.root / "AdaptiveFilterBarcodes" / "barcodes" / f"barcode_data_{fov}.h5"
         return pd.read_hdf(path)
 
     def load_exported_barcodes(self) -> pd.DataFrame:
@@ -218,9 +221,7 @@ class MerlinOutput:
         The coordinates indicate the top-left corner of the FOV.
         """
         path = self.root / "positions.csv"
-        df = pd.read_csv(path, header=None)
-        df.columns = ["x", "y"]
-        return df
+        return load_fov_positions(path)
 
     def load_data_organization(self) -> pd.DataFrame:
         """Load the data organization table."""
@@ -229,9 +230,7 @@ class MerlinOutput:
 
 
 class ImageDataset:
-    def __init__(
-        self, folderpath: str, data_organization: str = None, segdict: dict = None
-    ) -> None:
+    def __init__(self, folderpath: str, data_organization: str = None, segdict: dict = None) -> None:
         self.root = Path(folderpath)
         self.filenames = list(self.root.glob("*.dax"))
         if isinstance(data_organization, str):
@@ -271,17 +270,13 @@ class ImageDataset:
         """
         if hyb is not None:
             filename = self.filename(hyb, fov)
-            hyb_rows = self.data_organization[
-                self.data_organization["imagingRound"] == hyb
-            ]
+            hyb_rows = self.data_organization[self.data_organization["imagingRound"] == hyb]
             if channel == "fiducial":
                 frames = [hyb_rows.iloc[0]["fiducialFrame"]]
             else:
                 frames = hyb_rows[hyb_rows["color"] == channel].iloc[0]["frame"]
         elif bit is not None:
-            bitrow = self.data_organization[
-                self.data_organization["bitNumber"] == bit
-            ].iloc[0]
+            bitrow = self.data_organization[self.data_organization["bitNumber"] == bit].iloc[0]
             filename = self.filename(bitrow["imagingRound"], fov)
             if channel == "fiducial":
                 frames = [bitrow["fiducialFrame"]]
@@ -365,8 +360,7 @@ class DaxFile:
             raise Exception("num_channels must be specified to use this function")
         if channel is None:
             return self._memmap[
-                zslice * self.num_channels : zslice * self.num_channels
-                + self.num_channels,
+                zslice * self.num_channels : zslice * self.num_channels + self.num_channels,
                 :,
                 :,
             ]

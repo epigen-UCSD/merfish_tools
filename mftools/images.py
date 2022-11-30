@@ -8,17 +8,23 @@ load_combinatorial_stack loads DAX images from disk and returns such an array.
 """
 
 import os
+import math
 import logging
-from typing import Iterable
+import functools
+from typing import Iterable, List
+from collections import namedtuple
 
 import faiss
-import cupy as cp
+
+# import cupy as cp
+import numpy as cp  # Disabling cupy temporarily
 import numpy as np
 import pandas as pd
-from cupyx.scipy.ndimage import gaussian_filter, label, shift, affine_transform
-from cupyx.scipy.signal import convolve2d
+from sklearn.neighbors import NearestNeighbors
+#from cupyx.scipy.ndimage import gaussian_filter, label, shift, affine_transform
+#from cupyx.scipy.signal import convolve2d
 from scipy import signal
-from cupyx.scipy.fft import fftn, ifftn, fftfreq
+#from cupyx.scipy.fft import fftn, ifftn, fftfreq
 from scipy.stats import zscore
 
 from . import fileio
@@ -135,7 +141,7 @@ def calculate_projectors(window_size: int, sigma: float) -> list:
     bWiener = pfFFT / (cp.abs(pfFFT) * cp.abs(pfFFT) + alpha)
 
     # Buttersworth filter
-    eps = cp.sqrt(1.0 / beta ** 2 - 1)
+    eps = cp.sqrt(1.0 / beta**2 - 1)
 
     kkSqr = kk * kk / (kc * kc)
     bBWorth = 1.0 / cp.sqrt(1.0 + eps * eps * cp.power(kkSqr, n))
@@ -160,7 +166,7 @@ def deconvolve(img, window_size, sigma, iterations):
         [pf, pb] = calculate_projectors(window_size, sigma)
 
         eps = 1.0e-6
-        i_max = 2 ** 16 - 1
+        i_max = 2**16 - 1
 
         ek = cp.copy(img.astype(float))
         cp.clip(ek, eps, None, ek)
@@ -205,29 +211,21 @@ def _upsampled_dft(data, upsampled_region_size, upsample_factor=1, axis_offsets=
             upsampled_region_size,
         ] * data.ndim
     elif len(upsampled_region_size) != data.ndim:
-        raise ValueError(
-            "shape of upsampled region sizes must be equal "
-            "to input data's number of dimensions."
-        )
+        raise ValueError("shape of upsampled region sizes must be equal " "to input data's number of dimensions.")
 
     if axis_offsets is None:
         axis_offsets = [
             0,
         ] * data.ndim
     elif len(axis_offsets) != data.ndim:
-        raise ValueError(
-            "number of axis offsets must be equal to input "
-            "data's number of dimensions."
-        )
+        raise ValueError("number of axis offsets must be equal to input " "data's number of dimensions.")
 
     im2pi = 1j * 2 * cp.pi
 
     dim_properties = list(zip(data.shape, upsampled_region_size, axis_offsets))
 
     for (n_items, ups_size, ax_offset) in dim_properties[::-1]:
-        kernel = (cp.arange(ups_size) - ax_offset)[:, None] * fftfreq(
-            n_items, upsample_factor
-        )
+        kernel = (cp.arange(ups_size) - ax_offset)[:, None] * fftfreq(n_items, upsample_factor)
         kernel = cp.exp(-im2pi * kernel)
         # use kernel with same precision as the data
         kernel = kernel.astype(data.dtype, copy=False)
@@ -238,9 +236,7 @@ def _upsampled_dft(data, upsampled_region_size, upsample_factor=1, axis_offsets=
     return data
 
 
-def phase_cross_correlation(
-    reference_image, moving_image, upsample_factor=1, normalization="phase"
-):
+def phase_cross_correlation(reference_image, moving_image, upsample_factor=1, normalization="phase"):
     """Find translation between images using cross-correlation.
 
     This is adapted from the function in skimage.registration
@@ -260,9 +256,7 @@ def phase_cross_correlation(
     cross_correlation = ifftn(image_product)
 
     # Locate maximum
-    maxima = cp.unravel_index(
-        cp.argmax(cp.abs(cross_correlation)), cross_correlation.shape
-    )
+    maxima = cp.unravel_index(cp.argmax(cp.abs(cross_correlation)), cross_correlation.shape)
     midpoints = cp.array([cp.fix(axis_size / 2) for axis_size in shape])
 
     shifts = cp.stack(maxima)  # .astype(np.float32, copy=False)
@@ -285,9 +279,7 @@ def phase_cross_correlation(
             sample_region_offset,
         ).conj()
         # Locate maximum and map back to original pixel grid
-        maxima = cp.unravel_index(
-            cp.argmax(cp.abs(cross_correlation)), cross_correlation.shape
-        )
+        maxima = cp.unravel_index(cp.argmax(cp.abs(cross_correlation)), cross_correlation.shape)
 
         maxima = cp.stack(maxima).astype(np.float32, copy=False)
         maxima -= dftshift
@@ -335,9 +327,7 @@ def calculate_drift(img1, img2, upsample_factor=1):
 
 def get_drifts(folder, fov):
     beads = load_fiducial_stack(folder, fov, zslice=0, rounds=11, channel=2)
-    return cp.array(
-        [calculate_drift(beads[0], img, upsample_factor=100) for img in beads[1:]]
-    )
+    return cp.array([calculate_drift(beads[0], img, upsample_factor=100) for img in beads[1:]])
 
 
 def make_codebook_index(codebook_file):
@@ -360,9 +350,7 @@ def align_stack(stack, drifts, chromatic_corrector=None):
         # from skimage.transform import warp
 
         for i in range(1, 23, 2):
-            stack[i] = affine_transform(
-                stack[i], chromatic_corrector, order=1, mode="nearest"
-            )
+            stack[i] = affine_transform(stack[i], chromatic_corrector, order=1, mode="nearest")
             # stack[i] = cp.array(
             #    warp(stack[i].get(), chromatic_corrector, preserve_range=True)
             # )
@@ -410,15 +398,13 @@ def load_combinatorial_stack(data_dir, fov, zslice=None, rounds=11, bits_per_rou
 def decode_pixels(stack, codebook_idx, X_codebook, distance_threshold=0.5167):
     # print("Get neighbors")
     X_pixels = cp.reshape(stack, (stack.shape[0], np.product(stack.shape[1:])))
-    X_pixels = cp.moveaxis(X_pixels / cp.linalg.norm(X_pixels, axis=0), 0, -1).astype(
-        np.float32
-    )
+    X_pixels = cp.moveaxis(X_pixels / cp.linalg.norm(X_pixels, axis=0), 0, -1).astype(np.float32)
     dists, indexes = codebook_idx.search(X_pixels.get(), k=1)
 
     # print("Making decoded images")
     decoded = cp.zeros(X_pixels.shape[0], dtype=cp.int32) - 1
     # faiss returns squared distance (to avoid sqrt op)
-    valid = dists.flatten() <= distance_threshold ** 2
+    valid = dists.flatten() <= distance_threshold**2
     decoded[valid] = indexes.flatten()[valid]
     decoded = cp.reshape(decoded, stack[0].shape)
 
@@ -433,15 +419,11 @@ def decode_pixels(stack, codebook_idx, X_codebook, distance_threshold=0.5167):
         labels[mask] = gene_labels[mask] + nlabels
         nlabels += gene_nlabels
     nonzero = cp.where(decoded >= 0)
-    molecules = cp.array(
-        [labels[nonzero].flatten(), decoded[nonzero].flatten(), *cp.where(decoded >= 0)]
-    ).T
+    molecules = cp.array([labels[nonzero].flatten(), decoded[nonzero].flatten(), *cp.where(decoded >= 0)]).T
 
     # print("Getting pixel stats")
     inds = cp.ravel_multi_index(cp.transpose(molecules[:, 2:]), stack.shape[1:])
-    flatimg = cp.moveaxis(
-        cp.reshape(stack, (stack.shape[0], np.product(stack.shape[1:]))), 0, -1
-    )
+    flatimg = cp.moveaxis(cp.reshape(stack, (stack.shape[0], np.product(stack.shape[1:]))), 0, -1)
     intensities = flatimg[inds]
     bits = intensities[X_codebook[molecules[:, 1].get()] > 0].reshape((inds.size, 4))
     mean_intensities = bits.mean(axis=1)
@@ -490,13 +472,9 @@ def preprocess_stack(stack, drifts, scale_factors=None, chromatic_corrector=None
         stack[:] = (stack.swapaxes(0, -1) / scale_factors).swapaxes(0, -1)
 
 
-def decode_fov(
-    folder, fov, codebook_idx, X_codebook, scale_factors=None, chromatic_corrector=None
-):
+def decode_fov(folder, fov, codebook_idx, X_codebook, scale_factors=None, chromatic_corrector=None):
     drifts = get_drifts(folder, fov)
-    stack = load_combinatorial_stack(
-        folder, fov, zslice=None, rounds=11, bits_per_round=2
-    )
+    stack = load_combinatorial_stack(folder, fov, zslice=None, rounds=11, bits_per_round=2)
     preprocess_stack(stack, drifts, scale_factors, chromatic_corrector)
     pixels = decode_pixels(stack, codebook_idx, X_codebook)
     molecules = combine_pixels_to_molecules(pixels)
@@ -521,12 +499,8 @@ def decode_random_sample(
     for fov, z in zip(fovs, zinds):
         # print(fov, z)
         beads = load_fiducial_stack(folder, fov, zslice=z, rounds=11, channel=2)
-        drifts = cp.array(
-            [calculate_drift(beads[0], img, upsample_factor=100) for img in beads[1:]]
-        )
-        stack = load_combinatorial_stack(
-            folder, fov, zslice=z, rounds=11, bits_per_round=2
-        )
+        drifts = cp.array([calculate_drift(beads[0], img, upsample_factor=100) for img in beads[1:]])
+        stack = load_combinatorial_stack(folder, fov, zslice=z, rounds=11, bits_per_round=2)
         preprocess_stack(stack, drifts, scale_factors, chromatic_corrector)
         pix = decode_pixels(stack, codebook_idx, X_codebook)
         pix["z"] = z
@@ -544,9 +518,7 @@ def get_scale_factors(pixels, X_codebook, area=5):
 
 
 def calc_misid(data):
-    return (len(data[data["barcode_id"] < 10]) / 10) / (
-        len(data[data["barcode_id"] >= 10]) / 238
-    )
+    return (len(data[data["barcode_id"] < 10]) / 10) / (len(data[data["barcode_id"] >= 10]) / 238)
 
 
 def filter_molecules_histogram(molecules):
@@ -555,50 +527,102 @@ def filter_molecules_histogram(molecules):
         "distance": np.percentile(molecules["distance"], range(1, 100)),
         "area": range(1, 26),
     }
-    bins = [
-        np.searchsorted(edges, molecules[feature])
-        for feature, edges in histogram.items()
-    ]
+    bins = [np.searchsorted(edges, molecules[feature]) for feature, edges in histogram.items()]
     molecules["bin"] = [tuple(x) for x in np.array(bins).T]
-    blnkcount = np.unique(
-        molecules[molecules["barcode_id"] < 10]["bin"], return_counts=True
-    )
-    genecount = np.unique(
-        molecules[molecules["barcode_id"] >= 10]["bin"], return_counts=True
-    )
+    blnkcount = np.unique(molecules[molecules["barcode_id"] < 10]["bin"], return_counts=True)
+    genecount = np.unique(molecules[molecules["barcode_id"] >= 10]["bin"], return_counts=True)
 
     bincounts = pd.merge(
-        pd.DataFrame(
-            blnkcount[1], index=[tuple(row) for row in blnkcount[0]], columns=["c"]
-        ),
-        pd.DataFrame(
-            genecount[1], index=[tuple(row) for row in genecount[0]], columns=["c"]
-        ),
+        pd.DataFrame(blnkcount[1], index=[tuple(row) for row in blnkcount[0]], columns=["c"]),
+        pd.DataFrame(genecount[1], index=[tuple(row) for row in genecount[0]], columns=["c"]),
         how="outer",
         left_index=True,
         right_index=True,
         suffixes=["blank", "gene"],
     )
     bincounts = bincounts.fillna(0) + 1
-    bincounts["ratio"] = bincounts["cblank"] / (
-        bincounts["cblank"] + bincounts["cgene"]
-    )
+    bincounts["ratio"] = bincounts["cblank"] / (bincounts["cblank"] + bincounts["cgene"])
 
     cutoff = len(bincounts) // 2
     top = len(bincounts)
     bottom = 0
     while top - bottom > 1:
-        misid = calc_misid(
-            molecules[
-                molecules["bin"].isin(bincounts.sort_values("ratio").head(cutoff).index)
-            ]
-        )
+        misid = calc_misid(molecules[molecules["bin"].isin(bincounts.sort_values("ratio").head(cutoff).index)])
         print(misid, cutoff, top, bottom)
         if misid > 0.051:
             top = cutoff
         else:
             bottom = cutoff
         cutoff = (top + bottom) // 2
-    return molecules[
-        molecules["bin"].isin(bincounts.sort_values("ratio").head(cutoff).index)
-    ]
+    return molecules[molecules["bin"].isin(bincounts.sort_values("ratio").head(cutoff).index)]
+
+
+Overlap = namedtuple("Overlap", ["fov", "xslice", "yslice"])
+
+
+def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
+    """Get a slice for the region of an image overlapped by another FOV.
+
+    :param diff: The amount of overlap in the global coordinate system.
+    :param fovsize: The width/length of a FOV in the global coordinate system, defaults to 220.
+    :param get_trim: If True, return the half of the overlap closest to the edge. This is for
+        determining in which region the barcodes should be trimmed to avoid duplicates.
+    :return: A slice in the FOV coordinate system for the overlap.
+    """
+    if int(diff) == 0:
+        return slice(None)
+    if diff > 0:
+        if get_trim:
+            diff = fovsize - ((fovsize - diff) / 2)
+        overlap = 2048 * diff / fovsize
+        return slice(math.trunc(overlap), None)
+    else:
+        if get_trim:
+            diff = -fovsize - ((-fovsize - diff) / 2)
+        overlap = 2048 * diff / fovsize
+        return slice(None, math.trunc(overlap))
+
+
+class FOVPositions:
+    def __init__(
+        self, positions: pd.DataFrame = None, filename: str = None, merlin: fileio.MerlinOutput = None
+    ) -> None:
+        if positions is not None:
+            self.positions = positions
+        elif filename is not None:
+            self.positions = fileio.load_fov_positions(filename)
+        elif merlin is not None:
+            self.positions = merlin.load_fov_positions()
+
+    @functools.cached_property
+    def overlaps(self):
+        return self.find_fov_overlaps()
+
+    def local_to_global_coordinates(self, x, y, fov):
+        global_x = 220 * x / 2048 + np.array(self.positions.loc[fov]["y"])
+        global_y = 220 * y / 2048 - np.array(self.positions.loc[fov]["x"])
+        return global_x, global_y
+
+    def find_fov_overlaps(self, fovsize: int = 220, get_trim: bool = False) -> List[list]:
+        """Identify overlaps between FOVs."""
+        neighbor_graph = NearestNeighbors()
+        neighbor_graph = neighbor_graph.fit(self.positions)
+        res = neighbor_graph.radius_neighbors(self.positions, radius=fovsize, return_distance=True, sort_results=True)
+        overlaps = []
+        pairs = set()
+        for i, (dists, fovs) in enumerate(zip(*res)):
+            i = self.positions.iloc[i].name
+            for dist, fov in zip(dists, fovs):
+                fov = self.positions.iloc[fov].name
+                if dist == 0 or (i, fov) in pairs:
+                    continue
+                pairs.update([(i, fov), (fov, i)])
+                diff = self.positions.loc[i] - self.positions.loc[fov]
+                _get_slice = functools.partial(get_slice, fovsize=fovsize, get_trim=get_trim)
+                overlaps.append(
+                    [
+                        Overlap(i, _get_slice(diff[0]), _get_slice(-diff[1])),
+                        Overlap(fov, _get_slice(-diff[0]), _get_slice(diff[1])),
+                    ]
+                )
+        return overlaps
