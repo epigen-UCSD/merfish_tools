@@ -271,17 +271,22 @@ class ImageDataset:
         """
         if hyb is not None:
             filename = self.filename(hyb, fov)
-            if isinstance(channel, str):
-                frames = self.data_organization[
-                    (self.data_organization["color"] == channel)
-                    & (self.data_organization["imagingRound"] == hyb)
-                ].iloc[0]["frame"]
+            hyb_rows = self.data_organization[
+                self.data_organization["imagingRound"] == hyb
+            ]
+            if channel == "fiducial":
+                frames = [hyb_rows.iloc[0]["fiducialFrame"]]
+            else:
+                frames = hyb_rows[hyb_rows["color"] == channel].iloc[0]["frame"]
         elif bit is not None:
             bitrow = self.data_organization[
                 self.data_organization["bitNumber"] == bit
             ].iloc[0]
             filename = self.filename(bitrow["imagingRound"], fov)
-            frames = bitrow["frame"]
+            if channel == "fiducial":
+                frames = [bitrow["fiducialFrame"]]
+            else:
+                frames = bitrow["frame"]
         elif channel == "segmentation":
             filename = self.filename(self.segdict["hyb"], fov)
             zslice = 0
@@ -290,6 +295,8 @@ class ImageDataset:
             raise Exception("Must specify hyb or bit")
 
         dax = DaxFile(str(filename))
+        if len(frames) == 1:
+            return dax.frame(frames[0])
         if zslice is not None:
             return dax.frame(frames[zslice])
         imgstack = np.array([dax.frame(frame) for frame in frames])
