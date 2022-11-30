@@ -11,12 +11,10 @@ from mftools import cellgene
 from mftools import plotting
 
 
-def create_barcode_table(merlin_result, masks, positions, cell_links):
+def create_barcode_table(merlin_result, masks, cell_links):
     codebook = merlin_result.load_codebook()
     bcs = barcodes.make_table(merlin_result, codebook)
-    per_bit_error = barcodes.set_barcode_stats(
-        merlin_result, bcs, config.get("barcode_colors")
-    )
+    per_bit_error = barcodes.set_barcode_stats(merlin_result, bcs, config.get("barcode_colors"))
     plotting.exact_vs_corrected()
     per_gene_error = barcodes.per_gene_error(bcs)
     plotting.confidence_ratios(per_gene_error)
@@ -25,16 +23,14 @@ def create_barcode_table(merlin_result, masks, positions, cell_links):
         plotting.per_bit_error_line(per_bit_error, config.get("barcode_colors"))
         plotting.per_hyb_error(per_bit_error)
         plotting.per_color_error(per_bit_error, config.get("barcode_colors"))
-    #per_fov_error = barcodes.per_fov_error(bcs)
-    #plotting.fov_error_bar(per_fov_error)
-    #plotting.fov_error_spatial(per_fov_error, positions)
+    # per_fov_error = barcodes.per_fov_error(bcs)
+    # plotting.fov_error_bar(per_fov_error)
+    # plotting.fov_error_spatial(per_fov_error, positions)
     # plotting.spatial_transcripts_per_fov(bcs, positions)
-    barcodes.mark_barcodes_in_overlaps(
-        bcs, segmentation.find_fov_overlaps(positions, get_trim=True)
-    )
+    barcodes.mark_barcodes_in_overlaps(bcs, masks.positions.find_fov_overlaps(get_trim=True))
     barcodes.assign_to_cells(bcs, masks)
     barcodes.calculate_global_coordinates(
-        bcs, positions
+        bcs, masks.positions.positions
     )  # Replace with util.fov_to_global_coordinates
     barcodes.link_cell_ids(bcs, cell_links)
     for dataset in config.get("reference_counts"):
@@ -64,7 +60,7 @@ def analyze_experiment():
     cell_links = masks.linked_cells
     stats.set("Segmented cells", len(celldata))
 
-    bcs = create_barcode_table(merlin_result, masks, positions, cell_links)
+    bcs = create_barcode_table(merlin_result, masks, cell_links)
     fileio.save_barcode_table(bcs, config.path("barcodes.csv"))
 
     counts = barcodes.create_cell_by_gene_table(bcs)
