@@ -13,19 +13,13 @@ import pandas as pd
 from . import stats
 
 
-def create_scanpy_object(cellgene, celldata, positions):
-    blank_cols = np.array(
-        ["notarget" in col or "blank" in col.lower() for col in cellgene]
-    )
+def create_scanpy_object(cellgene, celldata, positions, codebook) -> sc.AnnData:
+    blank_cols = np.array(["notarget" in col or "blank" in col.lower() for col in cellgene])
     adata = sc.AnnData(cellgene.loc[:, ~blank_cols], dtype=np.int32)
     adata.obsm["X_blanks"] = cellgene.loc[:, blank_cols].to_numpy()
     adata.uns["blank_names"] = cellgene.columns[blank_cols].to_list()
-    adata.obsm["X_spatial"] = np.array(
-        celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
-    )
-    adata.obsm["X_local"] = np.array(
-        celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int))
-    )
+    adata.obsm["X_spatial"] = np.array(celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int)))
+    adata.obsm["X_local"] = np.array(celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int)))
     celldata.index = celldata.index.astype(str)
     adata.obs["volume"] = celldata["volume"]
     adata.obs["fov"] = celldata["fov"].astype(str)
@@ -33,16 +27,17 @@ def create_scanpy_object(cellgene, celldata, positions):
     adata.uns["fov_positions"] = positions.to_numpy()
     sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
     adata.obs["blank_counts"] = adata.obsm["X_blanks"].sum(axis=1)
-    adata.obs["misid_rate"] = (
-        adata.obs["blank_counts"] / len(adata.uns["blank_names"])
-    ) / (adata.obs["total_counts"] / len(adata.var_names))
+    adata.obs["misid_rate"] = (adata.obs["blank_counts"] / len(adata.uns["blank_names"])) / (
+        adata.obs["total_counts"] / len(adata.var_names)
+    )
     adata.obs["counts_per_volume"] = adata.obs["total_counts"] / adata.obs["volume"]
+    adata.varm["codebook"] = codebook.set_index("name").loc[adata.var_names].filter(like="bit").to_numpy()
+    for bit in range(adata.varm["codebook"].shape[1]):
+        adata.obs[f"bit{bit+1}"] = adata[:, adata.varm["codebook"][:, bit] == 1].X.sum(axis=1)
     return adata
 
 
-def adjust_spatial_coordinates(
-    adata, flip_horizontal=False, flip_vertical=False, transpose=False
-):
+def adjust_spatial_coordinates(adata, flip_horizontal=False, flip_vertical=False, transpose=False):
     if transpose and (flip_horizontal or flip_vertical):
         pass  # TODO: Should warn about order of operations
     if transpose:
@@ -100,15 +95,10 @@ def find_cell_communities(adata: sc.AnnData, labels: str, radius: int = 150) -> 
     ngraph = NearestNeighbors(radius=radius)
     ngraph.fit(adata.obsm["X_spatial"])
     _, indexes = ngraph.radius_neighbors(adata.obsm["X_spatial"])
-    res = [
-        pd.DataFrame(adata[cells, :].obs[labels].value_counts())
-        for cells in tqdm(indexes)
-    ]
+    res = [pd.DataFrame(adata[cells, :].obs[labels].value_counts()) for cells in tqdm(indexes)]
     neighbors_table = pd.concat(res, axis=1)
     neighbors_table.columns = adata.obs_names
     neighbors_table = neighbors_table.fillna(0)
-    adata.obsm["X_neighborhood"] = (
-        neighbors_table / neighbors_table.sum(axis=0)
-    ).T.to_numpy()
+    adata.obsm["X_neighborhood"] = (neighbors_table / neighbors_table.sum(axis=0)).T.to_numpy()
     kmeans = KMeans().fit(adata.obsm["X_neighborhood"])
     adata.obs["community"] = kmeans.labels_.astype(str)
