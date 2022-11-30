@@ -5,6 +5,7 @@ import pandas as pd
 import scanpy as sc
 from scipy.stats import zscore, pearsonr
 from matplotlib.ticker import FuncFormatter
+from skimage import transform
 
 from . import config
 from . import stats
@@ -327,6 +328,7 @@ def spatial_transcripts_per_fov(bcs, positions):
 def spatial_cell_clusters(adata):
     sc.pl.embedding(adata, basis="X_spatial", color="leiden")
 
+
 @plot(save="umap_clusters.png")
 def umap_clusters(adata):
     nclusts = len(np.unique(adata.obs["leiden"]))
@@ -339,9 +341,10 @@ def umap_clusters(adata):
         legend_fontoutline=2,
         frameon=False,
         title=f"{nclusts} clusters of {len(adata):,d} cells",
-        #palette=self.cmap,
-        #save="_clusters.png",
+        # palette=self.cmap,
+        # save="_clusters.png",
     )
+
 
 def fov_number_map(mfx):
     plt.figure(figsize=(12, 16), facecolor="white")
@@ -352,3 +355,77 @@ def fov_number_map(mfx):
     plt.axis("off")
     plt.tight_layout()
     plt.savefig(config.path("fov_number_map.png"), dpi=150)
+
+
+def check_drift(images, merlin, fov, bit1, bit2):
+    drifts = merlin.load_drift_transformations(fov=fov)
+    drift1 = drifts[bit1 - 1]
+    drift2 = drifts[bit2 - 1]
+    fig, axes = plt.subplots(1, 3, figsize=(14, 5), dpi=300)
+    fig.tight_layout()
+    img1 = images.load_image(fov=fov, bit=bit1, channel="fiducial")
+    img2 = images.load_image(fov=fov, bit=bit2, channel="fiducial")
+    comb1 = create_color_image(red=img1, blue=img2, vmax=99)
+    axes[0].imshow(comb1)
+    axes[0].axis("off")
+    axes[0].set_title("Raw fiducial images")
+    axes[0].text(
+        0.02, 0.98, s=f"Bit {bit1}", c="r", transform=axes[0].transAxes, va="top"
+    )
+    axes[0].text(
+        0.02, 0.94, s=f"Bit {bit2}", c="b", transform=axes[0].transAxes, va="top"
+    )
+    img1 = transform.warp(img1, drift1, preserve_range=True).astype(img1.dtype)
+    img2 = transform.warp(img2, drift2, preserve_range=True).astype(img2.dtype)
+    comb2 = create_color_image(red=img1, blue=img2, vmax=99)
+    axes[1].imshow(comb2)
+    axes[1].axis("off")
+    axes[1].set_title("Aligned fiducial images")
+    axes[1].text(
+        0.02,
+        0.98,
+        s=f"{drift1.params[0][2]}, {drift1.params[1][2]}",
+        c="r",
+        transform=axes[1].transAxes,
+        va="top",
+    )
+    axes[1].text(
+        0.02,
+        0.94,
+        s=f"{drift2.params[0][2]}, {drift2.params[1][2]}",
+        c="b",
+        transform=axes[1].transAxes,
+        va="top",
+    )
+    img1 = images.load_image(fov=fov, bit=bit1, max_projection=True)
+    img2 = images.load_image(fov=fov, bit=bit2, max_projection=True)
+    img1 = transform.warp(img1, drift1, preserve_range=True).astype(img1.dtype)
+    img2 = transform.warp(img2, drift2, preserve_range=True).astype(img2.dtype)
+    comb3 = create_color_image(red=img1, blue=img2, vmax=99)
+    axes[2].imshow(comb3)
+    axes[2].axis("off")
+    axes[2].set_title("Aligned bit images")
+
+
+def create_color_image(
+    red: np.ndarray = None, green: np.ndarray = None, blue: np.ndarray = None, vmax=100
+) -> np.ndarray:
+    shape = [x for x in [red, green, blue] if x is not None][0].shape
+    if red is not None:
+        red = red / np.percentile(red, vmax)
+        red[red > 1] = 1
+    else:
+        red = np.zeros(shape)
+    if green is not None:
+        green = green / np.percentile(green, vmax)
+        green[green > 1] = 1
+    else:
+        green = np.zeros(shape)
+    if blue is not None:
+        blue = blue / np.percentile(blue, vmax)
+        blue[blue > 1] = 1
+    else:
+        blue = np.zeros(shape)
+    img = np.array([red, green, blue])
+    img = np.moveaxis(img, 0, -1)
+    return img
