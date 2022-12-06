@@ -1,6 +1,5 @@
-Welcome to MERFISH Tools's documentation!
-=========================================
-
+MERFISH Tools documentation
+===========================
 .. note::
 
    This project is under active development.
@@ -15,7 +14,6 @@ To use, first install it using pip:
    $ pip install git+https://github.com/epigen-UCSD/merfish_tools
 
 
-Contents
-========
 .. toctree::
+   :caption: Contents:
    notebooks/find_marker_genes
