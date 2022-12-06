@@ -18,3 +18,4 @@ To use, first install it using pip:
 Contents
 ========
 .. toctree::
+   notebooks/find_marker_genes

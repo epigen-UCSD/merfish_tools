@@ -45,7 +45,8 @@ extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
-    'autoapi.extension'
+    'autoapi.extension',
+    'nbsphinx'
 ]
 
 autoapi_dirs = ['../mftools']
