@@ -16,4 +16,6 @@ To use, first install it using pip:
 
 .. toctree::
    :caption: Contents:
+
    notebooks/find_marker_genes
+   autoapi/mftools/index
