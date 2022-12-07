@@ -1,2 +1,13 @@
 nbsphinx
 faiss-cpu
+numpy
+pandas
+matplotlib
+scanpy
+anndata
+tqdm
+scikit-learn
+scikit-image>=0.18
+scipy
+h5py
+cellpose
