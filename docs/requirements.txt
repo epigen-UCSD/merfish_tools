@@ -1,2 +1,2 @@
-sphinx-autoapi
 nbsphinx
+faiss-cpu
