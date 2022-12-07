@@ -18,4 +18,5 @@ To use, first install it using pip:
    :caption: Contents:
 
    notebooks/find_marker_genes
-   
+   source/mftools
+   source/modules
