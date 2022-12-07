@@ -41,11 +41,18 @@ def create_barcode_table(merlin_result, masks, cell_links):
 def analyze_experiment():
     stats.savefile = config.path("stats.json")
     merlin_result = fileio.MerlinOutput(config.get("merlin_folder"))
+    if config.has("image_folder"):
+        imagedata = fileio.ImageDataset(
+            config.get("image_folder"),
+            data_organization=merlin_result.load_data_organization(),
+            segdict={"hyb": 0, "frame": 53},
+        )
     output = fileio.MerfishAnalysis(config.get("output_folder"))
     masks = segmentation.CellSegmentation(
         config.get("segmentation_folder"),
         output=output,
         positions=merlin_result.load_fov_positions(),
+        imagedata=imagedata,
     )
 
     positions = merlin_result.load_fov_positions()
