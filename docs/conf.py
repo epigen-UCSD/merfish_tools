@@ -14,19 +14,21 @@
 #
 import os
 import sys
+import datetime
 import sphinx_rtd_theme
 sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
 project = 'MERFISH Tools'
-copyright = '2022, Colin Kern'
-author = 'Colin Kern'
+author = 'UCSD Center for Epigenomics'
+copyright = f'{datetime.datetime.now().year}, {author}'
+
 
 # The short X.Y version
-version = ''
+version = '0.1'
 # The full version, including alpha/beta/rc tags
-release = ''
+release = '0.1'
 
 
 # -- General configuration ---------------------------------------------------
@@ -45,11 +47,10 @@ extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.coverage',
     'sphinx.ext.viewcode',
-    'autoapi.extension',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.autodoc',
     'nbsphinx'
 ]
-
-autoapi_dirs = ['../mftools']
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
@@ -139,7 +140,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, 'MERFISHTools.tex', 'MERFISH Tools Documentation',
-     'Colin Kern', 'manual'),
+     author, 'manual'),
 ]
 
 

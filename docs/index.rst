@@ -18,4 +18,4 @@ To use, first install it using pip:
    :caption: Contents:
 
    notebooks/find_marker_genes
-   autoapi/mftools/index
+   
