@@ -182,7 +182,7 @@ def calculate_global_coordinates(
         group["global_x"] = 220 * group["x"] / 2048 + xpos
         return group[["global_x", "global_y"]]
 
-    barcodes[["global_x", "global_y"]] = barcodes.groupby("fov").apply(
+    barcodes[["global_x", "global_y"]] = barcodes.groupby("fov", group_keys=False).apply(
         convert_to_global
     )
 
