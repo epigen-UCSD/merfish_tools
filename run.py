@@ -67,11 +67,18 @@ def analyze_experiment():
     cell_links = masks.linked_cells
     stats.set("Segmented cells", len(celldata))
 
-    bcs = create_barcode_table(merlin_result, masks, cell_links)
-    fileio.save_barcode_table(bcs, config.path("barcodes.csv"))
+    try:
+        bcs = output.load_barcode_table()
+    except FileNotFoundError:
+        bcs = create_barcode_table(merlin_result, masks, cell_links)
+        output.save_barcode_table(bcs)
 
-    counts = barcodes.create_cell_by_gene_table(bcs)
-    fileio.save_cell_by_gene_table(counts, config.path("cell_by_gene.csv"))
+    try:
+        counts = output.load_cell_by_gene_table()
+    except FileNotFoundError:
+        counts = barcodes.create_cell_by_gene_table(bcs)
+        output.save_cell_by_gene_table(counts)
+
     plotting.counts_per_cell_histogram(counts)
     plotting.genes_detected_per_cell_histogram(counts)
     codebook = merlin_result.load_codebook()
