@@ -14,6 +14,18 @@ from cellpose import io as cpio
 
 
 def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
+    """Load the detected transcripts from a MERSCOPE experiment.
+
+    Loads the detected transcript table from each region of a MERSCOPE experiment and combines
+    them into a single table with an added column indicating which region each transcript is from.
+
+    Args:
+        output_folder: The root folder for the experiment in the merlin_output folder on the MERSCOPE that
+            contains each of the region_0, region_1, etc. subfolders.
+
+    Returns:
+        The combined table of detected transcripts.
+    """
     bcs = []
     for bcfile in glob.glob(f"{output_folder}/region_*/detected_transcripts.csv"):
         bcs.append(pd.read_csv(bcfile, index_col=0))
@@ -23,7 +35,22 @@ def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
 
 
 def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
-    """Find the filename for the segmentation mask of the given FOV."""
+    """Find the filename for the segmentation mask of the given FOV.
+
+    This function searches the given directory for a file matching a number of different
+    possible patterns for segmentation mask filenames, based on cellpose output naming and
+    various other scripts used for segmentation internally at the USCD Center for Epigenomics.
+
+    Args:
+        segmask_dir: The directory containing segmentation masks.
+        fov: The field of view to find the mask file for.
+
+    Returns:
+        The mask file found for the specified field of view.
+
+    Raises:
+        FileNotFoundError: If no mask file could be found.
+    """
     patterns = [
         # Bogdan's segmentation script
         f"Fov-0*{fov}_seg.pkl",
@@ -43,7 +70,15 @@ def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
 
 
 def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
-    """Load the segmentation mask for the given FOV."""
+    """Load the segmentation mask for the given FOV.
+
+    Args:
+        segmask_dir: The directory containing segmentation masks.
+        fov: Which field of view to the load the mask for.
+
+    Returns:
+        The segmentation mask for the specified field of view.
+    """
     filename = str(search_for_mask_file(segmask_dir, fov))
 
     if filename.endswith(".pkl"):
@@ -68,22 +103,6 @@ def load_all_masks(segmask_dir: str, n_fovs: int):
 def save_mask(filename: Path, cellpose_data: tuple) -> None:
     filename.parents[0].mkdir(parents=True, exist_ok=True)
     cpio.masks_flows_to_seg(*cellpose_data, filename, [0, 0])
-
-
-def save_barcode_table(barcodes, filename) -> None:
-    barcodes.to_csv(filename, index=False)
-
-
-def load_barcode_table(filename: str) -> pd.DataFrame:
-    return pd.read_csv(filename)
-
-
-def save_cell_by_gene_table(cellbygene, filename) -> None:
-    cellbygene.to_csv(filename)
-
-
-def load_cell_by_gene_table(filename):
-    return pd.read_csv(filename, index_col=0)
 
 
 def save_stats(stats, filename) -> None:
@@ -128,11 +147,29 @@ class MerfishAnalysis:
         self.root = Path(folderpath)
         self.root.mkdir(parents=True, exist_ok=True)
 
+    def __load_dataframe(self, name: str, add_region: bool) -> pd.DataFrame:
+        filename = self.root / name
+        if filename.exists():
+            return pd.read_csv(filename, index_col=0)
+        # Check if this is a multi-region MERSCOPE experiment
+        if list(self.root.glob("region_*")):
+            region_dfs = []
+            for region in list(self.root.glob("region_*")):
+                num = str(region).rsplit("_", maxsplit=1)[-1]
+                dataframe = pd.read_csv(region / name, index_col=0)
+                if add_region:
+                    dataframe["region"] = num
+                region_dfs.append(dataframe)
+            dataframe = pd.concat(region_dfs)
+            dataframe.to_csv(filename)
+            return dataframe
+        raise FileNotFoundError(filename)
+
     def save_cell_metadata(self, celldata: pd.DataFrame) -> None:
         celldata.to_csv(self.root / "cell_metadata.csv")
 
     def load_cell_metadata(self) -> pd.DataFrame:
-        return pd.read_csv(self.root / "cell_metadata.csv", index_col=0)
+        return self.__load_dataframe("cell_metadata.csv", add_region=True)
 
     def save_linked_cells(self, links) -> None:
         with open(self.root / "linked_cells.txt", "w", encoding="utf8") as f:
@@ -145,6 +182,18 @@ class MerfishAnalysis:
             for line in f:
                 links.append(eval(line))
         return links
+
+    def save_barcode_table(self, barcodes) -> None:
+        barcodes.to_csv(self.root / "detected_transcripts.csv")
+
+    def load_barcode_table(self) -> pd.DataFrame:
+        return self.__load_dataframe("detected_transcripts.csv", add_region=True)
+
+    def save_cell_by_gene_table(self, cellbygene) -> None:
+        cellbygene.to_csv(self.root / "cell_by_gene.csv")
+
+    def load_cell_by_gene_table(self) -> pd.DataFrame:
+        return self.__load_dataframe("cell_by_gene.csv", add_region=False)
 
 
 class MerlinOutput:
@@ -250,6 +299,10 @@ class ImageDataset:
                 if int(props["imagingRound"]) == hyb and int(props["fov"]) == fov:
                     return file
         return None
+
+    def n_fovs(self) -> int:
+        hyb = str(self.filenames[0]).split("_")[-3]  # Get the hyb round of the first filename
+        return sum([hyb in str(f) for f in self.filenames])  # Check how many filenames have that hyb
 
     def load_image(
         self,

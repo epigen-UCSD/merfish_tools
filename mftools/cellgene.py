@@ -13,27 +13,33 @@ import pandas as pd
 from . import stats
 
 
-def create_scanpy_object(cellgene, celldata, positions, codebook) -> sc.AnnData:
+def create_scanpy_object(cellgene, celldata, positions=None, codebook=None) -> sc.AnnData:
     blank_cols = np.array(["notarget" in col or "blank" in col.lower() for col in cellgene])
     adata = sc.AnnData(cellgene.loc[:, ~blank_cols], dtype=np.int32)
     adata.obsm["X_blanks"] = cellgene.loc[:, blank_cols].to_numpy()
     adata.uns["blank_names"] = cellgene.columns[blank_cols].to_list()
-    adata.obsm["X_spatial"] = np.array(celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int)))
-    adata.obsm["X_local"] = np.array(celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int)))
+    if "global_x" in celldata:
+        adata.obsm["X_spatial"] = np.array(celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int)))
+    elif "center_x" in celldata:
+        adata.obsm["X_spatial"] = np.array(celldata[["center_x", "center_y"]].reindex(index=adata.obs.index))
+    if "fov_x" in celldata:
+        adata.obsm["X_local"] = np.array(celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int)))
     celldata.index = celldata.index.astype(str)
     adata.obs["volume"] = celldata["volume"]
     adata.obs["fov"] = celldata["fov"].astype(str)
     adata.layers["counts"] = adata.X
-    adata.uns["fov_positions"] = positions.to_numpy()
     sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
     adata.obs["blank_counts"] = adata.obsm["X_blanks"].sum(axis=1)
     adata.obs["misid_rate"] = (adata.obs["blank_counts"] / len(adata.uns["blank_names"])) / (
         adata.obs["total_counts"] / len(adata.var_names)
     )
     adata.obs["counts_per_volume"] = adata.obs["total_counts"] / adata.obs["volume"]
-    adata.varm["codebook"] = codebook.set_index("name").loc[adata.var_names].filter(like="bit").to_numpy()
-    for bit in range(adata.varm["codebook"].shape[1]):
-        adata.obs[f"bit{bit+1}"] = adata[:, adata.varm["codebook"][:, bit] == 1].X.sum(axis=1)
+    if codebook:
+        adata.varm["codebook"] = codebook.set_index("name").loc[adata.var_names].filter(like="bit").to_numpy()
+        for bit in range(adata.varm["codebook"].shape[1]):
+            adata.obs[f"bit{bit+1}"] = adata[:, adata.varm["codebook"][:, bit] == 1].X.sum(axis=1)
+    if positions:
+        adata.uns["fov_positions"] = positions.to_numpy()
     return adata
 
 
