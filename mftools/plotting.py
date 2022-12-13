@@ -58,9 +58,7 @@ def exact_vs_corrected() -> None:
     plt.bar([0, 1], [exact, corrected])
     plt.xticks([0, 1], ["Exact", "Corrected"])
     plt.ylabel("Counts (x10^6)")
-    plt.text(
-        0, exact, f"{stats.get('% exact barcodes')*100:0.0f}%", ha="center", va="bottom"
-    )
+    plt.text(0, exact, f"{stats.get('% exact barcodes')*100:0.0f}%", ha="center", va="bottom")
     plt.text(
         1,
         corrected,
@@ -75,8 +73,7 @@ def exact_vs_corrected() -> None:
 def confidence_ratios(per_gene_error) -> None:
     gene_stats = per_gene_error.sort_values(by="% exact barcodes", ascending=False)
     colors = [
-        "steelblue" if "blank" not in name and "notarget" not in name else "firebrick"
-        for name in gene_stats.index
+        "steelblue" if "blank" not in name and "notarget" not in name else "firebrick" for name in gene_stats.index
     ]
     plt.bar(
         range(1, len(gene_stats) + 1),
@@ -142,9 +139,7 @@ def per_bit_error_line(per_bit_error, colors) -> None:
 
 
 def per_hyb_error(per_bit_error) -> None:
-    g = sns.FacetGrid(
-        per_bit_error, row="Error type", height=2, aspect=3, sharey=False, sharex=False
-    )
+    g = sns.FacetGrid(per_bit_error, row="Error type", height=2, aspect=3, sharey=False, sharex=False)
     g.map_dataframe(sns.barplot, x="Hybridization round", y="Error rate", ci=None)
     g.map_dataframe(
         sns.pointplot,
@@ -253,33 +248,28 @@ def rnaseq_correlation(bcs, dataset) -> None:
     )
 
 
-def plot_correlation(
-    xcounts, ycounts, xlabel, ylabel, outfile=None, omit=[], genelabels=True
-):
-    set1 = set(xcounts.keys())
-    set2 = set(ycounts.keys())
-    genes_to_consider = [
-        gene for gene in list(set1.intersection(set2)) if gene not in omit
-    ]
+def transcripts_per_gene_scatterplot(x_adata, y_adata, xlabel=None, ylabel=None, gene_labels=True):
+    common_genes = x_adata.var_names.intersection(y_adata.var_names)
 
-    x = [xcounts[gene] for gene in genes_to_consider]
-    y = [ycounts[gene] for gene in genes_to_consider]
+    x_totals = x_adata[:, common_genes].X.sum(axis=0)
+    y_totals = y_adata[:, common_genes].X.sum(axis=0)
 
-    corr, pval = pearsonr(x, y)
-    z = np.polyfit(x, y, 1)
-    p = np.poly1d(z)
+    corr, _ = pearsonr(x_totals, y_totals)
+    trendline = np.poly1d(np.polyfit(x_totals, y_totals, 1))
     plt.figure(figsize=(10, 7))
-    plt.plot(x, p(x), "r--")
-    plt.scatter(x, y)
-    if genelabels:
-        for i, txt in enumerate(genes_to_consider):
-            plt.annotate(txt, (x[i], y[i]))
-    plt.title("Pearson = %.3f" % corr)
-    plt.ylabel(ylabel)
-    plt.xlabel(xlabel)
+    plt.plot((min(x_totals), max(x_totals)), (trendline(min(x_totals)), trendline(max(x_totals))), "r:")
+    plt.text(0.05, 0.95, f"p={corr:.2f}", transform=plt.gca().transAxes, va="top")
+    plt.scatter(x_totals, y_totals)
+    if gene_labels:
+        for i, txt in enumerate(common_genes):
+            plt.annotate(txt, (x_totals[i], y_totals[i]))
+    if not xlabel and "dataset_name" in x_adata.uns:
+        xlabel = x_adata.uns["dataset_name"]
+    if not ylabel and "dataset_name" in y_adata.uns:
+        ylabel = y_adata.uns["dataset_name"]
+    plt.ylabel(f"Total transcripts ({ylabel})")
+    plt.xlabel(f"Total transcripts ({xlabel})")
     plt.tight_layout()
-    if outfile:
-        plt.savefig(outfile, dpi=300)
 
 
 @plot(save="cell_volume.png")
@@ -369,12 +359,8 @@ def check_drift(images, merlin, fov, bit1, bit2):
     axes[0].imshow(comb1)
     axes[0].axis("off")
     axes[0].set_title("Raw fiducial images")
-    axes[0].text(
-        0.02, 0.98, s=f"Bit {bit1}", c="r", transform=axes[0].transAxes, va="top"
-    )
-    axes[0].text(
-        0.02, 0.94, s=f"Bit {bit2}", c="b", transform=axes[0].transAxes, va="top"
-    )
+    axes[0].text(0.02, 0.98, s=f"Bit {bit1}", c="r", transform=axes[0].transAxes, va="top")
+    axes[0].text(0.02, 0.94, s=f"Bit {bit2}", c="b", transform=axes[0].transAxes, va="top")
     img1 = transform.warp(img1, drift1, preserve_range=True).astype(img1.dtype)
     img2 = transform.warp(img2, drift2, preserve_range=True).astype(img2.dtype)
     comb2 = create_color_image(red=img1, blue=img2, vmax=99)
