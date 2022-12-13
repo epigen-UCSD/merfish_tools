@@ -6,20 +6,25 @@ import scanpy as sc
 import numpy as np
 from anndata import AnnData
 from tqdm import tqdm
-from sklearn.neighbors import NearestNeighbors
+from scipy.stats import pearsonr, zscore
+from sklearn.neighbors import NearestNeighbors, KNeighborsClassifier
 from sklearn.cluster import KMeans
 import pandas as pd
 
 from . import stats
 
 
-def create_scanpy_object(cellgene, celldata, positions=None, codebook=None) -> sc.AnnData:
+def create_scanpy_object(analysis, name=None, positions=None, codebook=None) -> sc.AnnData:
+    cellgene = analysis.load_cell_by_gene_table()
+    celldata = analysis.load_cell_metadata()
     blank_cols = np.array(["notarget" in col or "blank" in col.lower() for col in cellgene])
     adata = sc.AnnData(cellgene.loc[:, ~blank_cols], dtype=np.int32)
     adata.obsm["X_blanks"] = cellgene.loc[:, blank_cols].to_numpy()
     adata.uns["blank_names"] = cellgene.columns[blank_cols].to_list()
     if "global_x" in celldata:
-        adata.obsm["X_spatial"] = np.array(celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int)))
+        adata.obsm["X_spatial"] = np.array(
+            celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
+        )
     elif "center_x" in celldata:
         adata.obsm["X_spatial"] = np.array(celldata[["center_x", "center_y"]].reindex(index=adata.obs.index))
     if "fov_x" in celldata:
@@ -40,6 +45,10 @@ def create_scanpy_object(cellgene, celldata, positions=None, codebook=None) -> s
             adata.obs[f"bit{bit+1}"] = adata[:, adata.varm["codebook"][:, bit] == 1].X.sum(axis=1)
     if positions:
         adata.uns["fov_positions"] = positions.to_numpy()
+    if name:
+        adata.uns["dataset_name"] = name
+    else:
+        adata.uns["dataset_name"] = analysis.root.name
     return adata
 
 
@@ -108,3 +117,39 @@ def find_cell_communities(adata: sc.AnnData, labels: str, radius: int = 150) -> 
     adata.obsm["X_neighborhood"] = (neighbors_table / neighbors_table.sum(axis=0)).T.to_numpy()
     kmeans = KMeans().fit(adata.obsm["X_neighborhood"])
     adata.obs["community"] = kmeans.labels_.astype(str)
+
+
+def transfer_labels(adata: sc.AnnData, refdata: sc.AnnData, label: str, **kwargs):
+    common_genes = adata.var_names.intersection(refdata.var_names)
+    classifier = KNeighborsClassifier(**kwargs)  # n_neighbors=5, n_jobs=24, metric='correlation')
+    classifier.fit(refdata[:, common_genes].X, refdata.obs[label])
+    return classifier.predict(adata[:, common_genes].X)
+
+
+def label_clusters(adata: sc.AnnData, refdata: sc.AnnData, label: str, ref_label: str, number_sep=None):
+    common_genes = adata.var_names.intersection(refdata.var_names)
+    df = adata[:, common_genes].to_df()
+    df["cluster"] = adata.obs[label]
+    df = df.groupby("cluster").mean()
+    df = df.apply(zscore, axis=0)
+    refdf = refdata[:, common_genes].to_df()
+    refdf["cluster"] = refdata.obs[ref_label]
+    refdf = refdf.groupby("cluster").mean()
+    refdf = refdf.apply(zscore, axis=0)
+    # Get all the correlations
+    ps = []
+    for _, row1 in df.iterrows():
+        ps_ = []
+        for _, row2 in refdf.iterrows():
+            ps_.append(pearsonr(row1, row2)[0])
+        ps.append(ps_)
+    cordf = pd.DataFrame(ps, index=df.index, columns=refdf.index)
+    mapping = cordf.idxmax(axis=1)
+    if number_sep is not None:
+        counts = mapping.value_counts()
+        counter = {k:1 for k in counts[counts > 1].index}
+        for index, label in enumerate(mapping):
+            if label in counter:
+                mapping[index] = label + " " + str(counter[label])
+                counter[label] += 1
+    return mapping.loc[adata.obs["leiden"]].values
