@@ -281,24 +281,37 @@ class MerlinOutput:
 class ImageDataset:
     def __init__(self, folderpath: str, data_organization: str = None, segdict: dict = None) -> None:
         self.root = Path(folderpath)
-        self.filenames = list(self.root.glob("*.dax"))
         if isinstance(data_organization, str):
             self.data_organization = load_data_organization(data_organization)
         elif isinstance(data_organization, pd.DataFrame):
             self.data_organization = data_organization
-        if data_organization is not None:
-            self.regex = re.compile(self.data_organization.iloc[0]["imageRegExp"])
+        elif data_organization is None and Path(self.root, "dataorganization.csv").exists():
+            self.data_organization = load_data_organization(self.root / "dataorganization.csv")
+        if self.data_organization is not None:
+            self.regex = {}
+            for _, row in self.data_organization.iterrows():
+                self.regex[row["channelName"]] = re.compile(row["imageRegExp"])
         self.segdict = segdict
+        if Path(self.root, "data").is_dir():
+            self.filenames = list(Path(self.root, "data").glob("*.dax"))
+        else:
+            self.filenames = list(self.root.glob("*.dax"))
 
-    def filename(self, hyb, fov) -> Path:
+
+    def filename(self, regex, image_type, fov, imaging_round=None) -> Path:
         """Locates the filename for the image of the given hyb round and FOV."""
         for file in self.filenames:
-            match = self.regex.search(str(file))
+            match = regex.search(str(file.name))
             if match is not None:
                 props = match.groupdict()
-                if int(props["imagingRound"]) == hyb and int(props["fov"]) == fov:
-                    return file
-        return None
+                if "imageType" in props and props["imageType"] != image_type:
+                    continue
+                if "fov" in props and int(props["fov"]) != fov:
+                    continue
+                if "imagingRound" in props and int(props["imagingRound"]) != imaging_round:
+                    continue
+                return file
+        raise FileNotFoundError(f"Could not find image file for {image_type=}, {fov=}, {imaging_round=}")
 
     def n_fovs(self) -> int:
         hyb = str(self.filenames[0]).split("_")[-3]  # Get the hyb round of the first filename
@@ -308,8 +321,6 @@ class ImageDataset:
         self,
         fov: int,
         zslice: int = None,
-        bit: int = None,
-        hyb: int = None,
         channel: str = None,
         max_projection: bool = False,
     ) -> np.ndarray:
@@ -321,33 +332,12 @@ class ImageDataset:
         a 2D max projection along the z-axis is returned, depending on the
         max_projection parameter.
         """
-        if hyb is not None:
-            filename = self.filename(hyb, fov)
-            hyb_rows = self.data_organization[self.data_organization["imagingRound"] == hyb]
-            if channel == "fiducial":
-                frames = [hyb_rows.iloc[0]["fiducialFrame"]]
-            else:
-                frames = hyb_rows[hyb_rows["color"] == channel].iloc[0]["frame"]
-        elif bit is not None:
-            bitrow = self.data_organization[self.data_organization["bitNumber"] == bit].iloc[0]
-            filename = self.filename(bitrow["imagingRound"], fov)
-            if channel == "fiducial":
-                frames = [bitrow["fiducialFrame"]]
-            else:
-                frames = bitrow["frame"]
-        elif channel == "segmentation":
-            filename = self.filename(self.segdict["hyb"], fov)
-            zslice = 0
-            frames = [self.segdict["frame"]]
-        else:
-            raise Exception("Must specify hyb or bit")
-
+        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0] # Assume 1 match
+        filename = self.filename(self.regex[channel], row["imageType"], fov, row["imagingRound"])
         dax = DaxFile(str(filename))
-        if len(frames) == 1:
-            return dax.frame(frames[0])
         if zslice is not None:
-            return dax.frame(frames[zslice])
-        imgstack = np.array([dax.frame(frame) for frame in frames])
+            return dax.frame(row["frame"][zslice])
+        imgstack = np.array([dax.frame(frame) for frame in row["frame"]])
         if max_projection:
             return imgstack.max(axis=0)
         return imgstack
