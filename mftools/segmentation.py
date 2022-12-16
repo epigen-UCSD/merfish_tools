@@ -72,7 +72,7 @@ class CellSegmentation:
 
     def __init__(
         self,
-        mask_folder: str,
+        mask_folder: str = None,
         output: fileio.MerfishAnalysis = None,
         positions: pd.DataFrame = None,
         imagedata: fileio.ImageDataset = None,
@@ -84,12 +84,18 @@ class CellSegmentation:
         :param positions: The positions table representing the global coordinates of
             each FOV. See `fileio.MerlinOutput` for loading this file.
         """
-        self.path = Path(mask_folder)
+        self.path = None
+        if mask_folder:
+            self.path = Path(mask_folder)
         self.output = output
-        self.positions = images.FOVPositions(positions=positions)
+        self.positions = None
+        if positions:
+            self.positions = images.FOVPositions(positions=positions)
         self.imagedata = imagedata
         if imagedata is not None:
             self.model = cpmodels.Cellpose(gpu=True, model_type="cyto2")
+            if not self.positions and imagedata.has_positions():
+                self.positions = images.FOVPositions(positions=imagedata.load_fov_positions())
         self.masks = {}
 
     def __getitem__(self, key: int) -> np.ndarray:
@@ -107,10 +113,11 @@ class CellSegmentation:
         if key not in self.masks:
             try:
                 self.masks[key] = fileio.load_mask(self.path, key)
-            except FileNotFoundError:
+            except (FileNotFoundError, AttributeError):
                 segim, mask, flow, diams = self.segment_fov(key)
-                filename = self.path / self.imagedata.filename(0, key).parts[-1]
-                fileio.save_mask(filename, (segim, mask, flow, diams))
+                if self.path:
+                    filename = self.path / self.imagedata.filename("segmentation", key).parts[-1]
+                    fileio.save_mask(filename, (segim, mask, flow, diams))
                 self.masks[key] = mask
                 return mask
         return self.masks[key]

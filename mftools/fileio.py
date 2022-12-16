@@ -298,7 +298,7 @@ class ImageDataset:
             self.filenames = list(self.root.glob("*.dax"))
 
 
-    def filename(self, regex, image_type, fov, imaging_round=None) -> Path:
+    def _find_filename(self, regex, image_type, fov, imaging_round=None) -> Path:
         """Locates the filename for the image of the given hyb round and FOV."""
         for file in self.filenames:
             match = regex.search(str(file.name))
@@ -313,9 +313,21 @@ class ImageDataset:
                 return file
         raise FileNotFoundError(f"Could not find image file for {image_type=}, {fov=}, {imaging_round=}")
 
+    def filename(self, channel, fov) -> Path:
+        if channel == "segmentation":
+            channel = self.segdict["channel"]
+        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0] # Assume 1 match
+        return self._find_filename(self.regex[channel], row["imageType"], fov, row["imagingRound"])
+
     def n_fovs(self) -> int:
         hyb = str(self.filenames[0]).split("_")[-3]  # Get the hyb round of the first filename
-        return sum([hyb in str(f) for f in self.filenames])  # Check how many filenames have that hyb
+        return sum(hyb in str(f) for f in self.filenames)  # Check how many filenames have that hyb
+
+    def load_fov_positions(self):
+        return load_fov_positions(self.root / "settings/positions.csv")
+
+    def has_positions(self):
+        return Path(self.root / "settings/positions.csv").exists()
 
     def load_image(
         self,
@@ -332,8 +344,11 @@ class ImageDataset:
         a 2D max projection along the z-axis is returned, depending on the
         max_projection parameter.
         """
+        if channel == "segmentation":
+            channel = self.segdict["channel"]
+            zslice = self.segdict["zslice"]
         row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0] # Assume 1 match
-        filename = self.filename(self.regex[channel], row["imageType"], fov, row["imagingRound"])
+        filename = self.filename(channel, fov)
         dax = DaxFile(str(filename))
         if zslice is not None:
             return dax.frame(row["frame"][zslice])

@@ -187,43 +187,37 @@ def calculate_global_coordinates(
     )
 
 
-def assign_to_cells(barcodes, masks, drifts=None):
-    cellids = []
-    for fov, group in tqdm(barcodes.groupby("fov"), desc="Assigning barcodes to cells"):
+def assign_to_cells(barcodes, masks, drifts=None, transpose=False, flip_x=True, flip_y=True):
+    for fov in tqdm(np.unique(barcodes["fov"]), desc="Assigning barcodes to cells"):
+        group = barcodes.loc[barcodes['fov'] == fov]
         if drifts is not None:
             xdrift = drifts.loc[fov]["X drift"]
             ydrift = drifts.loc[fov]["Y drift"]
         else:
             xdrift, ydrift = 0, 0
-        x = round(group["x"] + xdrift).apply(lambda n: min(n, 2047)) // config.get(
-            "scale"
-        )
-        y = round(group["y"] + ydrift).apply(lambda n: min(n, 2047)) // config.get(
-            "scale"
-        )
-        x = x.astype(int)
-        y = y.astype(int)
+        x = (group['x'] + xdrift).round() // config.get("scale")
+        y = (group['y'] + ydrift).round() // config.get("scale")
+        if flip_x:
+            x = 2048 - x
+        if flip_y:
+            y = 2048 - y
+        if transpose:
+            x, y = y, x
+        x = x.clip(upper=2047).astype(int)
+        y = y.clip(upper=2047).astype(int)
         if len(masks[fov].shape) == 3:
             # TODO: Remove hard-coding of scale
-            z = round(group["z"] / 6.333333).astype(int)
-            cellids.append(pd.Series(masks[fov][z, y, x], index=group.index))
+            z = (group["z"].round() / 6.333333).astype(int)
+            barcodes.loc[barcodes['fov'] == fov, 'cell_id'] = masks[fov][z, x, y] + 10000*fov
         else:
-            cellids.append(pd.Series(masks[fov][y, x], index=group.index))
-    barcodes["cell_id"] = pd.concat(cellids)
-    barcodes.loc[barcodes["cell_id"] != 0, "cell_id"] = (
-        barcodes["fov"].astype(int) * 10000 + barcodes["cell_id"]
-    )
-    barcodes.loc[
-        (barcodes["cell_id"] == 0) & (barcodes["status"] == "unprocessed"), "status"
-    ] = "no cell"
-    barcodes.loc[
-        (barcodes["cell_id"] != 0) & (barcodes["status"] == "unprocessed"), "status"
-    ] = "good"
-    stats.set("Barcodes assigned to cells", len(barcodes[barcodes["status"] == "good"]))
+            barcodes.loc[barcodes['fov'] == fov, 'cell_id'] = masks[fov][x, y] + 10000*fov
+    barcodes.loc[barcodes["cell_id"] % 10000 == 0, 'cell_id'] = 0
+    barcodes['cell_id'] = barcodes['cell_id'].astype(int)
+    stats.set("Barcodes assigned to cells", len(barcodes[barcodes["cell_id"] != 0]))
     stats.set(
         "% barcodes assigned to cells",
         stats.get("Barcodes assigned to cells")
-        / len(barcodes[barcodes["status"] != "edge"]),
+        / len(barcodes),
     )
 
 
@@ -231,11 +225,6 @@ def link_cell_ids(barcodes, cell_links):
     link_map = {cell: list(group)[0] for group in cell_links for cell in group}
     barcodes["cell_id"] = barcodes["cell_id"].apply(
         lambda cid: link_map[cid] if cid in link_map else cid
-    )
-    stats.set("Cells with barcodes", len(np.unique(barcodes["cell_id"])))
-    stats.set(
-        "% cells with barcodes",
-        stats.get("Cells with barcodes") / stats.get("Segmented cells"),
     )
 
 
@@ -284,20 +273,16 @@ def mark_barcodes_in_overlaps(barcodes, trim_overlaps):
         ] = "edge"
 
 
-def create_cell_by_gene_table(barcodes, drop_blank=True) -> pd.DataFrame:
+def create_cell_by_gene_table(barcodes, drop_blank=False) -> pd.DataFrame:
     # Create cell by gene table
-    accepted = barcodes[barcodes["status"] == "good"]
-    ctable = pd.crosstab(index=accepted["cell_id"], columns=accepted["gene"])
+    incells = barcodes[barcodes["cell_id"] != 0]
+    ctable = pd.crosstab(index=incells["cell_id"], columns=incells["gene"])
     # Drop blank barcodes
     if drop_blank:
         drop_cols = [
             col for col in ctable.columns if "notarget" in col or "blank" in col.lower()
         ]
         ctable = ctable.drop(columns=drop_cols)
-    stats.set("Median transcripts per cell", np.median(ctable.apply(np.sum, axis=1)))
-    stats.set(
-        "Median genes detected per cell", np.median(ctable.astype(bool).sum(axis=1))
-    )
     return ctable
 
 
