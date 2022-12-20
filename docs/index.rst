@@ -20,4 +20,4 @@ To use, first install it using pip:
    notebooks/find_marker_genes
    notebooks/analyze_merscope_experiment
    source/mftools
-   source/modules
+   glossary
