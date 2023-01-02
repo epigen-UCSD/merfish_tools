@@ -161,7 +161,10 @@ def make_table(
     neighbors.add(X)
     dfs = []
     for fov in tqdm(range(merlin_result.n_fovs()), desc="Preparing barcodes"):
-        barcodes = merlin_result.load_filtered_barcodes(fov)
+        try:
+            barcodes = merlin_result.load_filtered_barcodes(fov)
+        except FileNotFoundError:
+            continue
         dfs.append(process_merlin_barcodes(barcodes, neighbors, codebook))
     df = pd.concat(dfs, ignore_index=True)
     df["status"] = "unprocessed"
