@@ -1,7 +1,6 @@
 """Module for loading and saving files and data related to MERFISH experiments."""
 import re
 import json
-import glob
 import pickle
 from pathlib import Path
 from typing import Optional, Dict, Sequence
@@ -9,29 +8,7 @@ from typing import Optional, Dict, Sequence
 import h5py
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 from cellpose import io as cpio
-
-
-def load_vizgen_barcodes(output_folder: str) -> pd.DataFrame:
-    """Load the detected transcripts from a MERSCOPE experiment.
-
-    Loads the detected transcript table from each region of a MERSCOPE experiment and combines
-    them into a single table with an added column indicating which region each transcript is from.
-
-    Args:
-        output_folder: The root folder for the experiment in the merlin_output folder on the MERSCOPE that
-            contains each of the region_0, region_1, etc. subfolders.
-
-    Returns:
-        The combined table of detected transcripts.
-    """
-    bcs = []
-    for bcfile in glob.glob(f"{output_folder}/region_*/detected_transcripts.csv"):
-        bcs.append(pd.read_csv(bcfile, index_col=0))
-        region = bcfile.split("/")[-2].split("_")[1]
-        bcs[-1]["region"] = region
-    return pd.concat(bcs).reset_index().drop(columns="index")
 
 
 def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
@@ -95,12 +72,13 @@ def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
     raise Exception(f"Unknown format for mask {filename}")
 
 
-def load_all_masks(segmask_dir: str, n_fovs: int):
-    """Load all masks."""
-    return [load_mask(Path(segmask_dir), fov) for fov in tqdm(range(n_fovs), desc="Loading cell masks")]
-
-
 def save_mask(filename: Path, cellpose_data: tuple) -> None:
+    """Save a mask in cellpose format.
+
+    Args:
+        filename: A pathlib.Path for the save location.
+        cellpose_data: A tuple containing the segmentation image and the masks, flows, and diams returned by cellpose.
+    """
     filename.parents[0].mkdir(parents=True, exist_ok=True)
     cpio.masks_flows_to_seg(*cellpose_data, filename, [0, 0])
 
@@ -115,11 +93,12 @@ def load_stats(filename):
     return json.load(open(filename, encoding="utf8"))
 
 
-def _parse_list(inputString: str, dtype=float):
-    if "," in inputString:
-        return np.fromstring(inputString.strip("[] "), dtype=dtype, sep=",")
+def _parse_list(list_string: str, dtype=float):
+    if "," in list_string:
+        sep = ","
     else:
-        return np.fromstring(inputString.strip("[] "), dtype=dtype, sep=" ")
+        sep = " "
+    return np.fromstring(list_string.strip("[] "), dtype=dtype, sep=sep)
 
 
 def _parse_int_list(inputString: str):
@@ -127,6 +106,14 @@ def _parse_int_list(inputString: str):
 
 
 def load_data_organization(filename: str) -> pd.DataFrame:
+    """Load a data organization file into a pandas DataFrame.
+
+    Args:
+        filename: The path to the data organization file.
+
+    Returns:
+        A pandas DataFrame of the data organization.
+    """
     return pd.read_csv(filename, converters={"frame": _parse_int_list, "zPos": _parse_list})
 
 
@@ -134,10 +121,16 @@ def load_fov_positions(path: Path) -> pd.DataFrame:
     """Get the global positions of the FOVs.
 
     The coordinates indicate the top-left corner of the FOV.
+
+    Args:
+        path: A pathlib.Path to the FOV positions file.
+
+    Returns:
+        A pandas DataFrame containing the FOV positions.
     """
-    df = pd.read_csv(path, header=None)
-    df.columns = ["x", "y"]
-    return df
+    positions = pd.read_csv(path, header=None)
+    positions.columns = ["x", "y"]
+    return positions
 
 
 class MerfishAnalysis:
@@ -297,7 +290,6 @@ class ImageDataset:
         else:
             self.filenames = list(self.root.glob("*.dax"))
 
-
     def _find_filename(self, regex, image_type, fov, imaging_round=None) -> Path:
         """Locates the filename for the image of the given hyb round and FOV."""
         for file in self.filenames:
@@ -316,7 +308,7 @@ class ImageDataset:
     def filename(self, channel, fov) -> Path:
         if channel == "segmentation":
             channel = self.segdict["channel"]
-        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0] # Assume 1 match
+        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
         return self._find_filename(self.regex[channel], row["imageType"], fov, row["imagingRound"])
 
     def n_fovs(self) -> int:
@@ -335,6 +327,7 @@ class ImageDataset:
         zslice: int = None,
         channel: str = None,
         max_projection: bool = False,
+        fiducial: bool = False
     ) -> np.ndarray:
         """Load an image from the dataset.
 
@@ -347,9 +340,11 @@ class ImageDataset:
         if channel == "segmentation":
             channel = self.segdict["channel"]
             zslice = self.segdict["zslice"]
-        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0] # Assume 1 match
+        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
         filename = self.filename(channel, fov)
         dax = DaxFile(str(filename))
+        if fiducial:
+            return dax.frame(row["fiducialFrame"])
         if zslice is not None:
             return dax.frame(row["frame"][zslice])
         imgstack = np.array([dax.frame(frame) for frame in row["frame"]])
