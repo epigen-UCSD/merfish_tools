@@ -14,9 +14,15 @@ import pandas as pd
 from . import stats
 
 
-def create_scanpy_object(analysis, name=None, positions=None, codebook=None) -> sc.AnnData:
+def create_scanpy_object(analysis, name=None, positions=None, codebook=None, keep_empty_cells=True) -> sc.AnnData:
     cellgene = analysis.load_cell_by_gene_table()
     celldata = analysis.load_cell_metadata()
+    if keep_empty_cells:
+        empty_cells = pd.DataFrame()
+        empty_cells.index = celldata.index.difference(cellgene.index)
+        for gene in cellgene.columns:
+            empty_cells[gene] = 0
+        cellgene = pd.concat([cellgene, empty_cells])
     blank_cols = np.array(["notarget" in col or "blank" in col.lower() for col in cellgene])
     adata = sc.AnnData(cellgene.loc[:, ~blank_cols], dtype=np.int32)
     adata.obsm["X_blanks"] = cellgene.loc[:, blank_cols].to_numpy()
@@ -147,7 +153,7 @@ def label_clusters(adata: sc.AnnData, refdata: sc.AnnData, label: str, ref_label
     mapping = cordf.idxmax(axis=1)
     if number_sep is not None:
         counts = mapping.value_counts()
-        counter = {k:1 for k in counts[counts > 1].index}
+        counter = {k: 1 for k in counts[counts > 1].index}
         for index, label in enumerate(mapping):
             if label in counter:
                 mapping[index] = label + " " + str(counter[label])
