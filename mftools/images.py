@@ -41,6 +41,19 @@ def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
         return slice(None, math.trunc(overlap))
 
 
+def lowpass_filter(image, sigma, window_size=None):
+    if not window_size:
+        window_size = int(2 * np.ceil(2 * sigma) + 1)
+    return cv2.GaussianBlur(image, (window_size, window_size), sigma, borderType=cv2.BORDER_REPLICATE)
+
+
+def highpass_filter(image, sigma, window_size=None):
+    blur = lowpass_filter(image, sigma, window_size)
+    filtered = image - blur
+    filtered[blur > image] = 0
+    return filtered
+
+
 class FOVPositions:
     def __init__(
         self, positions: pd.DataFrame = None, filename: str = None, merlin: fileio.MerlinOutput = None
