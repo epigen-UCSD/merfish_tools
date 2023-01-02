@@ -89,7 +89,7 @@ class CellSegmentation:
             self.path = Path(mask_folder)
         self.output = output
         self.positions = None
-        if positions:
+        if positions is not None:
             self.positions = images.FOVPositions(positions=positions)
         self.imagedata = imagedata
         if imagedata is not None:
@@ -168,6 +168,8 @@ class CellSegmentation:
                 ],
                 axis=1,
             )
+            duplicates = np.array([list(group)[:1] for group in self.linked_cells]).flatten()
+            table = table.drop(duplicates, axis=0)
         if self.output is not None:
             self.output.save_cell_metadata(table)
         return table
