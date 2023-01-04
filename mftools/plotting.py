@@ -353,8 +353,8 @@ def check_drift(images, merlin, fov, bit1, bit2):
     drift2 = drifts[bit2 - 1]
     fig, axes = plt.subplots(1, 3, figsize=(14, 5), dpi=300)
     fig.tight_layout()
-    img1 = images.load_image(fov=fov, bit=bit1, channel="fiducial")
-    img2 = images.load_image(fov=fov, bit=bit2, channel="fiducial")
+    img1 = images.load_image(fov=fov, channel=f"bit{bit1}", fiducial=True)
+    img2 = images.load_image(fov=fov, channel=f"bit{bit2}", fiducial=True)
     comb1 = create_color_image(red=img1, blue=img2, vmax=99)
     axes[0].imshow(comb1)
     axes[0].axis("off")
@@ -383,8 +383,8 @@ def check_drift(images, merlin, fov, bit1, bit2):
         transform=axes[1].transAxes,
         va="top",
     )
-    img1 = images.load_image(fov=fov, bit=bit1, max_projection=True)
-    img2 = images.load_image(fov=fov, bit=bit2, max_projection=True)
+    img1 = images.load_image(fov=fov, channel=f"bit{bit1}", max_projection=True)
+    img2 = images.load_image(fov=fov, channel=f"bit{bit2}", max_projection=True)
     img1 = transform.warp(img1, drift1, preserve_range=True).astype(img1.dtype)
     img2 = transform.warp(img2, drift2, preserve_range=True).astype(img2.dtype)
     comb3 = create_color_image(red=img1, blue=img2, vmax=99)
