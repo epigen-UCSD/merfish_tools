@@ -168,7 +168,7 @@ class CellSegmentation:
                 ],
                 axis=1,
             )
-            duplicates = np.array([list(group)[:1] for group in self.linked_cells]).flatten()
+            duplicates = np.concatenate([list(group)[1:] for group in self.linked_cells])
             table = table.drop(duplicates, axis=0)
         if self.output is not None:
             self.output.save_cell_metadata(table)
