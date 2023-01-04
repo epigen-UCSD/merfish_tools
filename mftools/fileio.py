@@ -340,7 +340,10 @@ class ImageDataset:
         if channel == "segmentation":
             channel = self.segdict["channel"]
             zslice = self.segdict["zslice"]
-        row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
+        try:
+            row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
+        except IndexError:
+            raise IndexError(f"Channel {channel} not found in data organization")
         filename = self.filename(channel, fov)
         dax = DaxFile(str(filename))
         if fiducial:
