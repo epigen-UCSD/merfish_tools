@@ -138,10 +138,15 @@ def label_clusters(adata: sc.AnnData, refdata: sc.AnnData, label: str, ref_label
     df["cluster"] = adata.obs[label]
     df = df.groupby("cluster").mean()
     df = df.apply(zscore, axis=0)
+    df = df.dropna(axis=1)
     refdf = refdata[:, common_genes].to_df()
     refdf["cluster"] = refdata.obs[ref_label]
     refdf = refdf.groupby("cluster").mean()
     refdf = refdf.apply(zscore, axis=0)
+    refdf = refdf.dropna(axis=1)
+    common_genes = refdf.columns.intersection(df.columns)
+    df = df[common_genes]
+    refdf = refdf[common_genes]
     # Get all the correlations
     ps = []
     for _, row1 in df.iterrows():
@@ -154,8 +159,8 @@ def label_clusters(adata: sc.AnnData, refdata: sc.AnnData, label: str, ref_label
     if number_sep is not None:
         counts = mapping.value_counts()
         counter = {k: 1 for k in counts[counts > 1].index}
-        for index, label in enumerate(mapping):
-            if label in counter:
-                mapping[index] = label + " " + str(counter[label])
-                counter[label] += 1
-    return mapping.loc[adata.obs["leiden"]].values
+        for index, name in enumerate(mapping):
+            if name in counter:
+                mapping[index] = name + number_sep + str(counter[name])
+                counter[name] += 1
+    return mapping.loc[adata.obs[label]].values
