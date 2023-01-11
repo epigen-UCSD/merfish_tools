@@ -44,10 +44,14 @@ def get_slice(diff: float, fovsize: int = 220, get_trim: bool = False) -> slice:
 def lowpass_filter(image, sigma, window_size=None):
     if not window_size:
         window_size = int(2 * np.ceil(2 * sigma) + 1)
+    if image.ndim == 3:
+        return np.array([lowpass_filter(zslice, sigma, window_size) for zslice in image])
     return cv2.GaussianBlur(image, (window_size, window_size), sigma, borderType=cv2.BORDER_REPLICATE)
 
 
 def highpass_filter(image, sigma, window_size=None):
+    if image.ndim == 3:
+        return np.array([highpass_filter(zslice, sigma, window_size) for zslice in image])
     blur = lowpass_filter(image, sigma, window_size)
     filtered = image - blur
     filtered[blur > image] = 0
