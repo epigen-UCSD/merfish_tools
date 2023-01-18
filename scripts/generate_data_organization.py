@@ -22,9 +22,7 @@ For a MERFISH experiment with 16 bits, 3 colors, and 70 z-stacks:
 """
 import argparse
 
-parser = argparse.ArgumentParser(
-    description="Generate data organization files for MERlin"
-)
+parser = argparse.ArgumentParser(description="Generate data organization files for MERlin")
 parser.add_argument(
     "-b",
     "--bits",
@@ -55,35 +53,53 @@ bits = args.bits
 colors = args.colors
 zstacks = args.zstacks
 
-fiducial_color = (
-    "405"  # MERlin doesn't seem to use this for anything, so no need to change it
-)
+fiducial_color = "405"  # MERlin doesn't seem to use this for anything, so no need to change it
 columns = "channelName,readoutName,imageType,imageRegExp,bitNumber,imagingRound,color,frame,zPos,fiducialImageType,fiducialRegExp,fiducialImagingRound,fiducialFrame,fiducialColor"
 image_type = "Conv_zscan"
-regexp = "(?P<imageType>[\w|-]+)_H(?P<imagingRound>[0-9]+)_F_(?P<fov>[0-9]+)"
+regexp = r"(?P<imageType>[\w|-]+)_H(?P<imagingRound>[0-9]+)_F_(?P<fov>[0-9]+)"
 n_frames = zstacks * (len(colors) + 1)  # +1 for fiducial channel
 
-print(columns)
-for bit in range(1, bits + 1):
-    name = f"bit{bit}"
-    round = str(((bit - 1) // len(colors)) + 1)
-    color = colors[(bit - 1) % len(colors)]
-    frames = str(list(range((bit - 1) % len(colors), n_frames, len(colors) + 1)))
-    zpos = str(list(range(0, zstacks)))
+
+def print_row(bit, name, hyb, color, frames, zpos):
     row = [
         name,
         name,
         image_type,
         regexp,
-        str(bit),
-        round,
+        bit,
+        hyb,
         color,
         f'"{frames}"',
         f'"{zpos}"',
         image_type,
         regexp,
-        round,
-        str(len(colors)),
+        hyb,
+        len(colors),
         fiducial_color,
     ]
-    print(",".join(row))
+    print(",".join([str(x) for x in row]))
+
+
+print(columns)
+for bit in range(1, bits + 1):
+    name = f"bit{bit}"
+    hyb = str(((bit - 1) // len(colors)) + 1)
+    color = colors[(bit - 1) % len(colors)]
+    frames = str(list(range((bit - 1) % len(colors), n_frames, len(colors) + 1)))
+    zpos = str(list(range(0, zstacks)))
+    print_row(bit, name, hyb, color, frames, zpos)
+
+
+name = "PolyT"
+hyb = 0
+color = 488
+frames = str(list(range(3, n_frames, 5)))
+zpos = str(list(range(0, zstacks)))
+print_row("", name, hyb, color, frames, zpos)
+
+name = "DAPI"
+hyb = 0
+color = 405
+frames = str(list(range(4, n_frames, 5)))
+zpos = str(list(range(0, zstacks)))
+print_row("", name, hyb, color, frames, zpos)
