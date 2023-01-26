@@ -22,7 +22,25 @@ def parse_image_filename(filename):
         fov = int(match.group(2))
         return hyb, fov
 
+    # Maybe it's a chromatin tracing image?
+    match = re.search("zscan_([0-9]+).dax", filename)
+    if match:
+        hyb = None
+        fov = int(match.group(1))
+        return hyb, fov
+
     raise AttributeError(f"Can't determine FOV and imaging round for filename {filename}")
+
+
+def chromatin_tracing_files(folder):
+    folders = folder.glob("H*")
+    files = []
+    for fold in folders:
+        for dax in fold.glob("*.dax"):
+            size = dax.stat().st_size
+            _, fov = parse_image_filename(str(dax))
+            files.append(ImageFile(fold, fov, size))
+    return files
 
 
 def verify_folder(folder):
@@ -32,16 +50,21 @@ def verify_folder(folder):
     filenames = list(folder.glob("*.dax"))
     if not filenames:
         filenames = list(pathlib.Path(folder / "data").glob("*.dax"))
-        if not filenames:
-            print("FAIL: Could not find any image files. Is it the correct path?")
-            sys.exit(1)
-        fovs = len(pathlib.Path(folder / "settings" / "positions.csv").read_text(encoding="utf-8").split())
-        print(f"Found MERSCOPE positions file with {fovs} FOVs")
+        if filenames:
+            fovs = len(pathlib.Path(folder / "settings" / "positions.csv").read_text(encoding="utf-8").split())
+            print(f"Found MERSCOPE positions file with {fovs} FOVs")
 
-    for dax in filenames:
-        size = dax.stat().st_size
-        hyb, fov = parse_image_filename(str(dax))
-        files.append(ImageFile(hyb, fov, size))
+    if filenames:
+        for dax in filenames:
+            size = dax.stat().st_size
+            hyb, fov = parse_image_filename(str(dax))
+            files.append(ImageFile(hyb, fov, size))
+    else:
+        files = chromatin_tracing_files(folder)
+
+    if not files:
+        print("FAIL: Could not find any image files. Is it the correct path?")
+        sys.exit(1)
 
     df = pd.DataFrame(files)
 
