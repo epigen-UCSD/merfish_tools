@@ -370,7 +370,7 @@ def check_drift(images, merlin, fov, bit1, bit2):
     axes[1].text(
         0.02,
         0.98,
-        s=f"{drift1.params[0][2]}, {drift1.params[1][2]}",
+        s=f"{drift1.params[0][2]:0.2f}, {drift1.params[1][2]:0.2f}",
         c="r",
         transform=axes[1].transAxes,
         va="top",
@@ -378,7 +378,7 @@ def check_drift(images, merlin, fov, bit1, bit2):
     axes[1].text(
         0.02,
         0.94,
-        s=f"{drift2.params[0][2]}, {drift2.params[1][2]}",
+        s=f"{drift2.params[0][2]:0.2f}, {drift2.params[1][2]:0.2f}",
         c="b",
         transform=axes[1].transAxes,
         va="top",
