@@ -8,7 +8,6 @@ from typing import Optional, Dict, Sequence
 import h5py
 import numpy as np
 import pandas as pd
-from cellpose import io as cpio
 
 
 def search_for_mask_file(segmask_dir: Path, fov: int) -> Path:
@@ -63,7 +62,10 @@ def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
             pkl = pickle.load(f)
         return pkl[0].astype(np.uint32)
     if filename.endswith(".npy"):
-        return np.load(filename, allow_pickle=True).item()["masks"]
+        try:
+            return np.load(filename, allow_pickle=True).item()["masks"]
+        except ValueError:
+            return np.load(filename)
     if filename.endswith(".png"):
         from PIL import Image
 
@@ -72,7 +74,7 @@ def load_mask(segmask_dir: Path, fov: int) -> np.ndarray:
     raise Exception(f"Unknown format for mask {filename}")
 
 
-def save_mask(filename: Path, cellpose_data: tuple) -> None:
+def save_mask(filename: Path, mask: np.ndarray) -> None:
     """Save a mask in cellpose format.
 
     Args:
@@ -80,7 +82,8 @@ def save_mask(filename: Path, cellpose_data: tuple) -> None:
         cellpose_data: A tuple containing the segmentation image and the masks, flows, and diams returned by cellpose.
     """
     filename.parents[0].mkdir(parents=True, exist_ok=True)
-    cpio.masks_flows_to_seg(*cellpose_data, filename, [0, 0])
+    # cpio.masks_flows_to_seg(*cellpose_data, filename, [0, 0])
+    np.save(filename, mask)
 
 
 def save_stats(stats, filename) -> None:
@@ -272,7 +275,7 @@ class MerlinOutput:
 
 
 class ImageDataset:
-    def __init__(self, folderpath: str, data_organization: str = None, segdict: dict = None) -> None:
+    def __init__(self, folderpath: str, data_organization: str = None) -> None:
         self.root = Path(folderpath)
         if isinstance(data_organization, str):
             self.data_organization = load_data_organization(data_organization)
@@ -284,7 +287,6 @@ class ImageDataset:
             self.regex = {}
             for _, row in self.data_organization.iterrows():
                 self.regex[row["channelName"]] = re.compile(row["imageRegExp"])
-        self.segdict = segdict
         if Path(self.root, "data").is_dir():
             self.filenames = list(Path(self.root, "data").glob("*.dax"))
         else:
@@ -306,8 +308,6 @@ class ImageDataset:
         raise FileNotFoundError(f"Could not find image file for {image_type=}, {fov=}, {imaging_round=}")
 
     def filename(self, channel, fov) -> Path:
-        if channel == "segmentation":
-            channel = self.segdict["channel"]
         row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
         return self._find_filename(self.regex[channel], row["imageType"], fov, row["imagingRound"])
 
@@ -322,12 +322,7 @@ class ImageDataset:
         return Path(self.root / "settings/positions.csv").exists()
 
     def load_image(
-        self,
-        fov: int,
-        zslice: int = None,
-        channel: str = None,
-        max_projection: bool = False,
-        fiducial: bool = False
+        self, fov: int, zslice: int = None, channel: str = None, max_projection: bool = False, fiducial: bool = False
     ) -> np.ndarray:
         """Load an image from the dataset.
 
@@ -337,9 +332,6 @@ class ImageDataset:
         a 2D max projection along the z-axis is returned, depending on the
         max_projection parameter.
         """
-        if channel == "segmentation":
-            channel = self.segdict["channel"]
-            zslice = self.segdict["zslice"]
         try:
             row = self.data_organization[self.data_organization["channelName"] == channel].iloc[0]  # Assume 1 match
         except IndexError:

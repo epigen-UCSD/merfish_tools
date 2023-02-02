@@ -4,11 +4,12 @@ from collections import defaultdict
 from typing import List, Set
 from pathlib import Path
 
-from cellpose import models as cpmodels
+from cellpose import models as cpmodels, utils as cputils
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from skimage.segmentation import expand_labels
+from skimage.measure import regionprops_table
 
 from . import config
 from . import stats
@@ -67,6 +68,12 @@ def filter_by_volume(celldata, min_volume, max_factor):
     return celldata
 
 
+def remove_small_cells_from_mask(mask, min_volume):
+    sizes = pd.DataFrame(regionprops_table(mask, properties=["label", "area"]))
+    mask[np.isin(mask, sizes[sizes["area"] < min_volume]["label"])] = 0
+    return mask
+
+
 class CellSegmentation:
     """A collection of segmentation masks from all FOVs."""
 
@@ -76,6 +83,8 @@ class CellSegmentation:
         output: fileio.MerfishAnalysis = None,
         positions: pd.DataFrame = None,
         imagedata: fileio.ImageDataset = None,
+        channel: str = "PolyT",
+        zslice: int = None,
     ) -> None:
         """Initialize the instance.
 
@@ -92,6 +101,8 @@ class CellSegmentation:
         if positions is not None:
             self.positions = images.FOVPositions(positions=positions)
         self.imagedata = imagedata
+        self.channel = channel
+        self.zslice = zslice
         if imagedata is not None:
             self.model = cpmodels.Cellpose(gpu=True, model_type="cyto2")
             if not self.positions and imagedata.has_positions():
@@ -114,10 +125,10 @@ class CellSegmentation:
             try:
                 self.masks[key] = fileio.load_mask(self.path, key)
             except (FileNotFoundError, AttributeError):
-                segim, mask, flow, diams = self.segment_fov(key)
+                mask = self.segment_fov(key)
                 if self.path:
-                    filename = self.path / self.imagedata.filename("segmentation", key).parts[-1]
-                    fileio.save_mask(filename, (segim, mask, flow, diams))
+                    filename = self.path / self.imagedata.filename(self.channel, key).stem
+                    fileio.save_mask(Path(str(filename) + "_seg.npy"), mask)
                 self.masks[key] = mask
                 return mask
         return self.masks[key]
@@ -219,19 +230,26 @@ class CellSegmentation:
         return linked_sets
 
     def segment_fov(self, fov: int):
-        segim = self.imagedata.load_image(fov=fov, channel="segmentation")
-        mask, flow, _, diams = self.model.eval(
-            segim,
-            channels=[0, 0],
-            diameter=80,
-            cellprob_threshold=-4,
-            flow_threshold=1.25,
-        )
-        for cellid, size in zip(*np.unique(mask, return_counts=True)):
-            if size < 2500:
-                mask[mask == cellid] = 0
-        mask = expand_labels(mask, 3)
-        return segim, mask, flow, diams
+        segim = self.imagedata.load_image(fov=fov, channel=self.channel, zslice=self.zslice)
+        if segim.ndim == 2:
+            mask, _, _, _ = self.model.eval(
+                segim,
+                channels=[0, 0],
+                diameter=80,
+                cellprob_threshold=-4,
+                flow_threshold=1.25,
+            )
+            mask = remove_small_cells_from_mask(mask, min_volume=2500)
+            mask = expand_labels(mask, 3)
+        elif segim.ndim == 3:
+            frames, _, _, _ = self.model.eval(
+                list(segim), diameter=80, channels=[0, 0], cellprob_threshold=-4, flow_threshold=1.25
+            )
+            mask = np.array(cputils.stitch3D(frames))
+            mask = remove_small_cells_from_mask(mask, min_volume=2500)
+            for i, frame in enumerate(mask):
+                mask[i] = expand_labels(frame, 3)
+        return mask
 
     def make_metadata_table(self) -> pd.DataFrame:
         def get_centers(inds):
