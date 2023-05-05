@@ -142,7 +142,7 @@ class MerfishAnalysis:
     def __init__(self, folderpath: str, save_to_subfolder: str = "") -> None:
         self.root = Path(folderpath)
         self.save_path = self.root / save_to_subfolder
-        self.root.mkdir(parents=True, exist_ok=True)
+        self.save_path.mkdir(parents=True, exist_ok=True)
 
     def __load_dataframe(self, name: str, add_region: bool) -> pd.DataFrame:
         filename = self.save_path / name
