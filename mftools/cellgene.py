@@ -32,12 +32,15 @@ def create_scanpy_object(analysis, name=None, positions=None, codebook=None, kee
             celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
         )
     elif "center_x" in celldata:
-        adata.obsm["X_spatial"] = np.array(celldata[["center_x", "center_y"]].reindex(index=adata.obs.index))
+        adata.obsm["X_spatial"] = np.array(
+            celldata[["center_x", "center_y"]].reindex(index=adata.obs.index.astype(int))
+        )
     if "fov_x" in celldata:
         adata.obsm["X_local"] = np.array(celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int)))
     celldata.index = celldata.index.astype(str)
-    adata.obs["volume"] = celldata["volume"]
-    adata.obs["fov"] = celldata["fov"].astype(str)
+    for column in celldata.columns:
+        adata.obs[column] = celldata[column]
+    adata.obs["fov"] = adata.obs["fov"].astype(str)
     adata.layers["counts"] = adata.X
     sc.pp.calculate_qc_metrics(adata, percent_top=None, inplace=True)
     adata.obs["blank_counts"] = adata.obsm["X_blanks"].sum(axis=1)
