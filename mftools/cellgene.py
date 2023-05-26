@@ -17,11 +17,14 @@ from . import stats
 def create_scanpy_object(analysis, name=None, positions=None, codebook=None, keep_empty_cells=True) -> sc.AnnData:
     cellgene = analysis.load_cell_by_gene_table()
     celldata = analysis.load_cell_metadata()
+    celldata.index = celldata.index.astype(str)
     if keep_empty_cells:
-        empty_cells = pd.DataFrame()
-        empty_cells.index = celldata.index.difference(cellgene.index)
-        for gene in cellgene.columns:
-            empty_cells[gene] = 0
+        empty_cells = pd.DataFrame(
+            [
+                pd.Series(data=0, index=cellgene.columns, name=cellid)
+                for cellid in celldata.index.difference(cellgene.index)
+            ]
+        )
         cellgene = pd.concat([cellgene, empty_cells])
     blank_cols = np.array(["notarget" in col or "blank" in col.lower() for col in cellgene])
     adata = sc.AnnData(cellgene.loc[:, ~blank_cols], dtype=np.int32)
@@ -29,15 +32,14 @@ def create_scanpy_object(analysis, name=None, positions=None, codebook=None, kee
     adata.uns["blank_names"] = cellgene.columns[blank_cols].to_list()
     if "global_x" in celldata:
         adata.obsm["X_spatial"] = np.array(
-            celldata[["global_x", "global_y"]].reindex(index=adata.obs.index.astype(int))
+            celldata[["global_x", "global_y"]].reindex(index=adata.obs.index)
         )
     elif "center_x" in celldata:
         adata.obsm["X_spatial"] = np.array(
-            celldata[["center_x", "center_y"]].reindex(index=adata.obs.index.astype(int))
+            celldata[["center_x", "center_y"]].reindex(index=adata.obs.index)
         )
     if "fov_x" in celldata:
-        adata.obsm["X_local"] = np.array(celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index.astype(int)))
-    celldata.index = celldata.index.astype(str)
+        adata.obsm["X_local"] = np.array(celldata[["fov_x", "fov_y"]].reindex(index=adata.obs.index))
     for column in celldata.columns:
         adata.obs[column] = celldata[column]
     adata.obs["fov"] = adata.obs["fov"].astype(str)
